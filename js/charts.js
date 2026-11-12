@@ -110,7 +110,14 @@ function renderAllCharts(records) {
         },
       },
       zoom: {
+        pan: {
+          enabled: true,
+          mode: "x",
+        },
         zoom: {
+          pinch: {
+            enabled: true,
+          },
           drag: {
             enabled: true,
             backgroundColor: "rgba(124, 92, 255, 0.2)",

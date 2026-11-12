@@ -2,8 +2,20 @@
 <html lang="uk">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <title data-i18n="appTitle">Моніторинг інвертора — SmartESS</title>
+    
+    <!-- PWA & Mobile Web App Meta Tags -->
+    <link rel="manifest" href="manifest.json" />
+    <meta name="theme-color" content="#0b0d17" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="SmartESS" />
+    <link rel="icon" type="image/svg+xml" href="icons/icon.svg" />
+    <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png" />
+    <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+
     <link rel="stylesheet" href="css/style.css" />
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js"></script>
@@ -13,10 +25,22 @@
     <div class="container">
       <!-- Header -->
       <header>
-        <div class="title-group">
-          <h1 data-i18n="appTitle">Моніторинг інвертора</h1>
-          <div class="subtitle" id="lastUpdate" data-i18n="waitingAuth">Очікування авторизації...</div>
+        <div class="header-top">
+          <div class="title-group">
+            <h1 data-i18n="appTitle">Моніторинг інвертора</h1>
+            <div class="subtitle" id="lastUpdate" data-i18n="waitingAuth">Очікування авторизації...</div>
+          </div>
+          <div class="header-actions">
+            <!-- Language Selector -->
+            <select id="langSelect" class="lang-select" title="Мова / Язык / Language">
+              <option value="uk">UA</option>
+              <option value="ru">RU</option>
+              <option value="en">EN</option>
+            </select>
+            <button id="accountBtn" class="btn-account" data-i18n="account">Акаунт</button>
+          </div>
         </div>
+
         <div class="controls">
           <select id="deviceSelect" style="display: none"></select>
 
@@ -33,16 +57,8 @@
             <button class="date-today-btn is-today" id="todayBtn" data-i18n="today">Сьогодні</button>
           </div>
 
-          <!-- Language Selector -->
-          <select id="langSelect" class="lang-select" title="Мова / Язык / Language">
-            <option value="uk">UA</option>
-            <option value="ru">RU</option>
-            <option value="en">EN</option>
-          </select>
-
           <button class="primary" id="refreshBtn" data-i18n="refresh">Оновити</button>
-          <button id="resetZoomHeaderBtn" data-i18n="resetZoom">Скидання зуму</button>
-          <button id="accountBtn" data-i18n="account">Акаунт</button>
+          <button id="resetZoomHeaderBtn" class="desktop-only" data-i18n="resetZoom">Скидання зуму</button>
         </div>
       </header>
 
@@ -52,7 +68,7 @@
       <div class="power-banner mode-grid" id="powerBanner">
         <div class="banner-left">
           <div class="banner-icon" id="bannerIcon">⚡</div>
-          <div>
+          <div class="banner-text-group">
             <div class="banner-title" id="bannerTitle" data-i18n="bannerInitTitle">Визначення джерела живлення...</div>
             <div class="banner-sub" id="bannerSub" data-i18n="bannerInitSub">Зв'язок з інвертором встановлюється</div>
           </div>
@@ -60,10 +76,16 @@
         <div class="banner-badge" id="bannerBadge">—</div>
       </div>
 
-      <!-- Navigation Tabs -->
+      <!-- Navigation Tabs (Bottom Navigation Bar on Mobile) -->
       <nav class="nav-tabs">
-        <button class="tab-btn active" data-tab="tabMain" data-i18n="tabMain">★ Головне</button>
-        <button class="tab-btn" data-tab="tabAdvanced" data-i18n="tabAdvanced">⚙️ Розширені параметри</button>
+        <button class="tab-btn active" data-tab="tabMain">
+          <span class="tab-icon">★</span>
+          <span data-i18n="tabMain">Головне</span>
+        </button>
+        <button class="tab-btn" data-tab="tabAdvanced">
+          <span class="tab-icon">⚙️</span>
+          <span data-i18n="tabAdvanced">Розширені</span>
+        </button>
       </nav>
 
       <!-- TAB 1: MAIN (Mobile & Daily Essentials) -->
@@ -86,7 +108,7 @@
             <div class="card-sub" id="gridDetails">Частота: — Гц · Струм: — А</div>
           </div>
 
-          <!-- Battery Card -->
+          <!-- Battery Card with Visual Gauge -->
           <div class="card">
             <div class="card-header">
               <span class="card-label" data-i18n="batteryTitle">Батарея (LiFePO4)</span>
@@ -219,7 +241,7 @@
             <button class="range-btn" data-range="18-24" data-i18n="range1824">Вечір 18–24</button>
           </div>
           <div style="display: flex; align-items: center; gap: 10px">
-            <span class="zoom-hint" data-i18n="zoomHint">Виділи область мишкою для зуму</span>
+            <span class="zoom-hint desktop-only" data-i18n="zoomHint">Виділи область мишкою для зуму</span>
             <button id="resetZoomBtn" class="btn-reset-zoom" data-i18n="resetZoom">Скидання зуму</button>
           </div>
         </div>
@@ -302,5 +324,18 @@
     <script src="js/api.js"></script>
     <script src="js/charts.js"></script>
     <script src="js/app.js"></script>
+
+    <!-- Register PWA Service Worker -->
+    <script>
+      if ("serviceWorker" in navigator && (window.location.protocol === "https:" || window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")) {
+        window.addEventListener("load", () => {
+          navigator.serviceWorker.register("./sw.js").then((reg) => {
+            console.log("SmartESS PWA ServiceWorker registered with scope:", reg.scope);
+          }).catch((err) => {
+            console.warn("SmartESS PWA ServiceWorker registration failed:", err);
+          });
+        });
+      }
+    </script>
   </body>
 </html>

@@ -18,8 +18,8 @@
     account: "Акаунт",
     currentStatus: "Поточний стан",
     live: "В РЕАЛЬНОМУ ЧАСІ",
-    tabMain: "★ Головне",
-    tabAdvanced: "⚙️ Розширені параметри",
+    tabMain: "Головне",
+    tabAdvanced: "Розширені",
     
     // Banner
     bannerGridTitle: "Живлення від міської мережі",
@@ -167,8 +167,8 @@
     account: "Аккаунт",
     currentStatus: "Текущее состояние",
     live: "В РЕАЛЬНОМ ВРЕМЕНИ",
-    tabMain: "★ Главное",
-    tabAdvanced: "⚙️ Расширенные параметры",
+    tabMain: "Главное",
+    tabAdvanced: "Расширенные",
     
     // Banner
     bannerGridTitle: "Питание от городской сети",
@@ -316,8 +316,8 @@
     account: "Account",
     currentStatus: "Current Status",
     live: "LIVE",
-    tabMain: "★ Overview",
-    tabAdvanced: "⚙️ Advanced",
+    tabMain: "Overview",
+    tabAdvanced: "Advanced",
     
     // Banner
     bannerGridTitle: "Powered by Grid",

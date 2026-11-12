@@ -101,6 +101,12 @@
     - Daily energy counters (Grid import kWh, Battery cycle Wh).
     - Time-of-day filters (`00–06`, `06–12`, `12–18`, `18–24`) with drag-to-zoom.
     - Full power balance chart and collapsible 5-minute raw telemetry table.
+- **Multi-Language Support (i18n):** Instant switching between Ukrainian (`uk`), Russian (`ru`), and English (`en`) with persistent language selection.
+- **Mobile-First UX & Native PWA:**
+  - Fixed Native Bottom Navigation Bar on mobile screens (`env(safe-area-inset-bottom)`) for one-thumb reachability.
+  - Multi-touch chart pinch-to-zoom and pan via Hammer.js.
+  - `manifest.json`, Service Worker (`sw.js`), and high-res vector + PNG app icons for "Add to Home Screen" standalone app mode on iOS and Android.
+  - Offline app shell caching with network-first telemetry bypassing.
 - **Authentication & Storage:** Modal login with automated inverter discovery, token refresh, and browser-only credential caching (`localStorage`).
 
 ---
@@ -109,4 +115,3 @@
 - **Live Energy Flow Diagram:** Add an animated SVG node diagram at the top showing real-time power flow direction between Solar, Inverter, Battery, Grid, and Home Load.
 - **Battery Autonomy Calculator:** Allow configuring battery bank capacity (Ah/kWh) to estimate remaining backup runtime based on current SoC and rolling average load.
 - **Multi-day / Monthly Analytics:** Add weekly/monthly energy aggregation bars (PV generation vs. Grid import vs. Battery cycling).
-- **PWA Support:** Add `manifest.json` and a basic Service Worker for full-screen home screen installation on iOS/Android.
