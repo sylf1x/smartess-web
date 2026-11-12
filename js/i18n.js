@@ -103,6 +103,8 @@
     rowCount: "записів",
     timeCol: "Час",
     modeCol: "Режим",
+    pvColPower: "PV (Вт)",
+    pvColVolt: "PV (В)",
     loadCol: "Навантаження (ВА / Вт)",
     batSocCol: "АКБ (%)",
     batVoltCol: "АКБ (В)",
@@ -128,6 +130,19 @@
     updatedAt: "Оновлено",
     unitHours: "год",
     unitMin: "хв",
+    unitV: "В",
+    unitA: "А",
+    unitW: "Вт",
+    unitHz: "Гц",
+    unitKwh: "кВт·год",
+    unitWh: "Вт·год",
+    unitVa: "ВА",
+    unitDeg: "°C",
+    historyTitle: "Історія за день:",
+    prevDay: "Попередній день",
+    nextDay: "Наступний день",
+    openCalendar: "Натисни, щоб відкрити календар",
+    scrubHint: "Проведи пальцем по графіку",
 
     // Tooltips
     tooltipBatCharge: "АКБ: +{w} Вт (Зарядка)",
@@ -252,6 +267,8 @@
     rowCount: "записей",
     timeCol: "Время",
     modeCol: "Режим",
+    pvColPower: "PV (Вт)",
+    pvColVolt: "PV (В)",
     loadCol: "Нагрузка (ВА / Вт)",
     batSocCol: "АКБ (%)",
     batVoltCol: "АКБ (В)",
@@ -277,6 +294,19 @@
     updatedAt: "Обновлено",
     unitHours: "ч",
     unitMin: "мин",
+    unitV: "В",
+    unitA: "А",
+    unitW: "Вт",
+    unitHz: "Гц",
+    unitKwh: "кВт·ч",
+    unitWh: "Вт·ч",
+    unitVa: "ВА",
+    unitDeg: "°C",
+    historyTitle: "История за день:",
+    prevDay: "Предыдущий день",
+    nextDay: "Следующий день",
+    openCalendar: "Нажми, чтобы открыть календарь",
+    scrubHint: "Проведи пальцем по графику",
 
     // Tooltips
     tooltipBatCharge: "АКБ: +{w} Вт (Зарядка)",
@@ -401,6 +431,8 @@
     rowCount: "records",
     timeCol: "Time",
     modeCol: "Mode",
+    pvColPower: "PV (W)",
+    pvColVolt: "PV (V)",
     loadCol: "Load (VA / W)",
     batSocCol: "Battery (%)",
     batVoltCol: "Bat Volt (V)",
@@ -426,6 +458,19 @@
     updatedAt: "Updated",
     unitHours: "h",
     unitMin: "m",
+    unitV: "V",
+    unitA: "A",
+    unitW: "W",
+    unitHz: "Hz",
+    unitKwh: "kWh",
+    unitWh: "Wh",
+    unitVa: "VA",
+    unitDeg: "°C",
+    historyTitle: "Daily History:",
+    prevDay: "Previous Day",
+    nextDay: "Next Day",
+    openCalendar: "Click to open calendar",
+    scrubHint: "Slide finger across graph",
 
     // Tooltips
     tooltipBatCharge: "Battery: +{w} W (Charging)",
@@ -477,12 +522,25 @@ function getLang() {
   return currentLang;
 }
 
+const langListeners = [];
+
+function onLangChange(fn) {
+  if (typeof fn === "function") {
+    langListeners.push(fn);
+  }
+}
+
 function setLang(lang) {
   if (!["uk", "ru", "en"].includes(lang)) return;
   currentLang = lang;
   localStorage.setItem(LANG_STORAGE_KEY, lang);
   document.documentElement.lang = lang;
   applyI18nToDOM();
+  langListeners.forEach((fn) => {
+    try {
+      fn(lang);
+    } catch {}
+  });
 }
 
 function t(key, params = {}) {
@@ -540,6 +598,7 @@ function applyI18nToDOM() {
     initLanguage,
     getLang,
     setLang,
+    onLangChange,
     t,
     getMonths,
     translateMode,

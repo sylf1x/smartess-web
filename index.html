@@ -31,6 +31,7 @@
             <div class="subtitle" id="lastUpdate" data-i18n="waitingAuth">Очікування авторизації...</div>
           </div>
           <div class="header-actions">
+            <select id="deviceSelect" style="display: none"></select>
             <!-- Language Selector -->
             <select id="langSelect" class="lang-select" title="Мова / Язык / Language">
               <option value="uk">UA</option>
@@ -38,27 +39,8 @@
               <option value="en">EN</option>
             </select>
             <button id="accountBtn" class="btn-account" data-i18n="account">Акаунт</button>
+            <button class="primary" id="refreshBtn" data-i18n="refresh">Оновити</button>
           </div>
-        </div>
-
-        <div class="controls">
-          <select id="deviceSelect" style="display: none"></select>
-
-          <!-- Custom Styled Date Selector -->
-          <div class="date-selector">
-            <button class="date-nav-btn" id="prevDayBtn" title="Попередній день">◀</button>
-            <div class="date-display-wrap" id="dateDisplayWrap" title="Натисни, щоб відкрити календар">
-              <span class="date-display-icon">📅</span>
-              <span class="date-display-text" id="dateDisplayText">Сьогодні</span>
-              <span class="date-chevron">▾</span>
-              <input type="date" id="datePicker" class="date-input-overlay" />
-            </div>
-            <button class="date-nav-btn" id="nextDayBtn" title="Наступний день">▶</button>
-            <button class="date-today-btn is-today" id="todayBtn" data-i18n="today">Сьогодні</button>
-          </div>
-
-          <button class="primary" id="refreshBtn" data-i18n="refresh">Оновити</button>
-          <button id="resetZoomHeaderBtn" class="desktop-only" data-i18n="resetZoom">Скидання зуму</button>
         </div>
       </header>
 
@@ -139,6 +121,26 @@
           </div>
         </section>
 
+        <!-- Daily History Toolbar (Separates Live Telemetry from Day History) -->
+        <div class="history-toolbar">
+          <div class="history-title-wrap">
+            <span class="history-icon">📅</span>
+            <span class="history-title" data-i18n="historyTitle">Історія за день:</span>
+          </div>
+
+          <div class="date-selector">
+            <button class="date-nav-btn" id="prevDayBtn" data-i18n-title="prevDay" title="Попередній день">◀</button>
+            <div class="date-display-wrap" id="dateDisplayWrap" data-i18n-title="openCalendar" title="Натисни, щоб відкрити календар">
+              <span class="date-display-icon">📅</span>
+              <span class="date-display-text" id="dateDisplayText">Сьогодні</span>
+              <span class="date-chevron">▾</span>
+              <input type="date" id="datePicker" class="date-input-overlay" />
+            </div>
+            <button class="date-nav-btn" id="nextDayBtn" data-i18n-title="nextDay" title="Наступний день">▶</button>
+            <button class="date-today-btn is-today" id="todayBtn" data-i18n="today">Сьогодні</button>
+          </div>
+        </div>
+
         <!-- Grid 24h Infographic Section -->
         <section class="grid-infographic">
           <div class="infographic-header">
@@ -173,13 +175,22 @@
             </div>
           </div>
 
-          <!-- Grid Voltage & Frequency Chart -->
+          <!-- Grid Voltage & Frequency Chart with Touch Scrubber -->
           <div class="chart-box-main">
             <canvas id="gridChart"></canvas>
+            <div class="chart-scrubber-line" id="gridScrubLine"></div>
+          </div>
+          <div class="chart-scrubber-readout" id="gridScrubReadout">
+            <div class="scrub-time"><span class="scrub-icon">🕒</span> <span id="gridScrubTime">--:--</span></div>
+            <div class="scrub-pill"><span class="scrub-dot dot-blue"></span> <span id="gridScrubVolt">— В</span></div>
+            <div class="scrub-pill"><span class="scrub-dot dot-green"></span> <span id="gridScrubSoc">— %</span></div>
+            <div class="scrub-pill"><span class="scrub-dot dot-amber"></span> <span id="gridScrubFreq">— Гц</span></div>
+            <div class="scrub-pill scrub-mode-pill"><span class="scrub-dot dot-gray"></span> <span id="gridScrubMode">—</span></div>
+            <div class="scrub-hint" data-i18n="scrubHint">Проведи пальцем по графіку</div>
           </div>
         </section>
 
-        <!-- Load & Battery History Chart -->
+        <!-- Load & Battery History Chart with Touch Scrubber -->
         <section class="card chart-full">
           <div class="card-header">
             <div class="card-label" data-i18n="loadBatHistoryTitle">Історія навантаження будинку та роботи АКБ (Вт)</div>
@@ -190,6 +201,14 @@
           </div>
           <div class="chart-box-main">
             <canvas id="loadBatChart"></canvas>
+            <div class="chart-scrubber-line" id="loadBatScrubLine"></div>
+          </div>
+          <div class="chart-scrubber-readout" id="loadBatScrubReadout">
+            <div class="scrub-time"><span class="scrub-icon">🕒</span> <span id="loadBatScrubTime">--:--</span></div>
+            <div class="scrub-pill"><span class="scrub-dot dot-purple"></span> <span id="loadBatScrubLoad">— Вт</span></div>
+            <div class="scrub-pill"><span class="scrub-dot dot-green"></span> <span id="loadBatScrubBat">— Вт</span></div>
+            <div class="scrub-pill scrub-mode-pill"><span class="scrub-dot dot-gray"></span> <span id="loadBatScrubMode">—</span></div>
+            <div class="scrub-hint" data-i18n="scrubHint">Проведи пальцем по графіку</div>
           </div>
         </section>
       </main>
@@ -279,8 +298,8 @@
                 <tr>
                   <th data-i18n="timeCol">Час</th>
                   <th data-i18n="modeCol">Режим</th>
-                  <th>PV (Вт)</th>
-                  <th>PV (В)</th>
+                  <th data-i18n="pvColPower">PV (Вт)</th>
+                  <th data-i18n="pvColVolt">PV (В)</th>
                   <th data-i18n="loadCol">Навантаження (ВА / Вт)</th>
                   <th data-i18n="batSocCol">АКБ (%)</th>
                   <th data-i18n="batVoltCol">АКБ (В)</th>

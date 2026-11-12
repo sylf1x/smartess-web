@@ -267,7 +267,7 @@ function renderKPI(latest, dev) {
 
   // 2. Grid Card
   if (gridVoltEl) {
-    gridVoltEl.textContent = `${gridV} В`;
+    gridVoltEl.textContent = `${gridV} ${t("unitV")}`;
     gridVoltEl.className = isGridAvailable
       ? "card-value val-blue"
       : "card-value val-red";
@@ -328,10 +328,10 @@ function renderKPI(latest, dev) {
 
   if (batStateBadge) {
     if (isCharging) {
-      batStateBadge.textContent = `${t("charge")} (+${batW} Вт)`;
+      batStateBadge.textContent = `${t("charge")} (+${batW} ${t("unitW")})`;
       batStateBadge.className = "card-badge badge-green";
     } else if (isDischarging) {
-      batStateBadge.textContent = `${t("discharge")} (${batW} Вт)`;
+      batStateBadge.textContent = `${t("discharge")} (${batW} ${t("unitW")})`;
       batStateBadge.className =
         batSoc < 25 ? "card-badge badge-red" : "card-badge badge-amber";
     } else {
@@ -348,7 +348,7 @@ function renderKPI(latest, dev) {
   }
 
   // 4. Load Card
-  if (loadPowerEl) loadPowerEl.textContent = `${activeW} Вт`;
+  if (loadPowerEl) loadPowerEl.textContent = `${activeW} ${t("unitW")}`;
   if (loadDetailsEl) {
     loadDetailsEl.textContent = t("loadDetails", { v: latest.outVolt });
   }
@@ -364,7 +364,7 @@ function renderKPI(latest, dev) {
 
   // 5. Advanced KPIs
   const pvPowerEl = document.getElementById("pvPower");
-  if (pvPowerEl) pvPowerEl.textContent = `${latest.pvPower} Вт`;
+  if (pvPowerEl) pvPowerEl.textContent = `${latest.pvPower} ${t("unitW")}`;
   const pvDetailsEl = document.getElementById("pvDetails");
   if (pvDetailsEl) {
     pvDetailsEl.textContent = t("pvDetails", {
@@ -374,7 +374,7 @@ function renderKPI(latest, dev) {
   }
 
   const dayEnergyEl = document.getElementById("dayEnergy");
-  if (dayEnergyEl) dayEnergyEl.textContent = `PV: ${latest.dayPvKwh} кВт·год`;
+  if (dayEnergyEl) dayEnergyEl.textContent = `PV: ${latest.dayPvKwh} ${t("unitKwh")}`;
   const dayEnergyDetailsEl = document.getElementById("dayEnergyDetails");
   if (dayEnergyDetailsEl) {
     const batChg = (Number(latest.dayBatChgWh || 0) / 1000).toFixed(2);
@@ -387,7 +387,7 @@ function renderKPI(latest, dev) {
   }
 
   const invTempEl = document.getElementById("invTemp");
-  if (invTempEl) invTempEl.textContent = `${latest.tempInv} °C`;
+  if (invTempEl) invTempEl.textContent = `${latest.tempInv} ${t("unitDeg")}`;
   const tempDetailsEl = document.getElementById("tempDetails");
   if (tempDetailsEl) {
     tempDetailsEl.textContent = t("tempDetails", {
@@ -649,9 +649,8 @@ async function loadDashboard() {
 }
 
 // Language Switcher Handler
-if (langSelect) {
-  langSelect.onchange = (e) => {
-    SmartESS.I18n.setLang(e.target.value);
+if (SmartESS?.I18n?.onLangChange) {
+  SmartESS.I18n.onLangChange((lang) => {
     updateDateControls(
       datePicker ? datePicker.value : new Date().toLocaleDateString("en-CA"),
     );
@@ -659,6 +658,12 @@ if (langSelect) {
       renderKPI(lastLiveRecord, currentDev);
     }
     applyRangeAndRender();
+  });
+}
+
+if (langSelect) {
+  langSelect.onchange = (e) => {
+    SmartESS.I18n.setLang(e.target.value);
   };
 }
 
