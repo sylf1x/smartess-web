@@ -28,7 +28,7 @@
         <div class="header-top">
           <div class="title-group">
             <h1 data-i18n="appTitle">Моніторинг інвертора</h1>
-            <div class="subtitle" id="lastUpdate" data-i18n="waitingAuth">Очікування авторизації...</div>
+            <div class="subtitle" id="lastUpdate"><span data-i18n="waitingAuth">Очікування авторизації...</span></div>
           </div>
           <div class="header-actions">
             <select id="deviceSelect" style="display: none"></select>
@@ -123,6 +123,7 @@
             <div class="card-value" id="loadPower">— Вт</div>
             <div class="card-sub" id="loadDetails">Вихід інвертора: — В</div>
           </div>
+
         </section>
 
         <!-- Daily History Toolbar (Separates Live Telemetry from Day History) -->
@@ -133,15 +134,15 @@
           </div>
 
           <div class="date-selector">
-            <button class="date-nav-btn" id="prevDayBtn" data-i18n-title="prevDay" title="Попередній день">◀</button>
+            <button class="date-nav-btn prev-day-btn" id="prevDayBtn" data-i18n-title="prevDay" title="Попередній день">◀</button>
             <label class="date-display-wrap" id="dateDisplayWrap" for="datePicker" data-i18n-title="openCalendar" title="Натисни, щоб відкрити календар">
               <span class="date-display-icon">📅</span>
               <span class="date-display-text" id="dateDisplayText">Сьогодні</span>
               <span class="date-chevron">▾</span>
-              <input type="date" id="datePicker" class="date-input-overlay" />
+              <input type="date" id="datePicker" class="date-input-overlay date-picker-input" />
             </label>
-            <button class="date-nav-btn" id="nextDayBtn" data-i18n-title="nextDay" title="Наступний день">▶</button>
-            <button class="date-today-btn is-today" id="todayBtn" data-i18n="today">Сьогодні</button>
+            <button class="date-nav-btn next-day-btn" id="nextDayBtn" data-i18n-title="nextDay" title="Наступний день">▶</button>
+            <button class="date-today-btn is-today today-btn" id="todayBtn" data-i18n="today">Сьогодні</button>
           </div>
         </div>
 
@@ -197,8 +198,14 @@
         <!-- Load & Battery History Chart with Touch Scrubber -->
         <section class="card chart-full">
           <div class="card-header">
-            <div class="card-label" data-i18n="loadBatHistoryTitle">Історія навантаження будинку та роботи АКБ (Вт)</div>
-            <div style="display: flex; align-items: center; gap: 10px;">
+            <div class="card-title-group">
+              <div class="card-label" id="loadBatHistoryTitle" data-i18n="loadBatHistoryTitle">Історія навантаження будинку та роботи АКБ (Вт)</div>
+            </div>
+            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+              <div class="stats-unit-toggle">
+                <button class="stats-unit-btn active" id="loadBatUnitWBtn" data-unit="w" data-i18n="unitWBtn">Вт (W)</button>
+                <button class="stats-unit-btn" id="loadBatUnitABtn" data-unit="a" data-i18n="unitABtn">А (A)</button>
+              </div>
               <div class="card-stats" id="loadBatStats">—</div>
               <button class="btn-reset-zoom" id="resetZoomLoadBtn" data-i18n="resetZoom">Скидання зуму</button>
             </div>
@@ -242,7 +249,7 @@
         <!-- Time Range & Outage Presets Card -->
         <div class="card stats-filter-card">
           <div class="stats-filter-section">
-            <div class="stats-filter-label" data-i18n="statsCustomTime">Вибір часу розрахунку:</div>
+            <div class="stats-filter-label" data-i18n="statsTimeChoice">Діапазон вимірювання (Дата та Час):</div>
             <div class="range-group" id="statsPresetButtons">
               <button class="range-btn active" data-stats-range="all" data-i18n="rangeAll">Весь день</button>
               <button class="range-btn" data-stats-range="00-06" data-i18n="range0006">Ніч 00–06</button>
@@ -258,17 +265,19 @@
             <div class="stats-outage-chips" id="statsOutageChips"></div>
           </div>
 
-          <!-- Custom Time Range Form -->
+          <!-- Custom Date & Time Range Form -->
           <div class="stats-custom-time-row">
             <div class="stats-time-input-group">
-              <label for="statsTimeFrom" data-i18n="statsFrom">Від:</label>
+              <label for="statsDateFrom" data-i18n="statsFrom">Від:</label>
+              <input type="date" id="statsDateFrom" class="stats-date-input" />
               <input type="time" id="statsTimeFrom" value="00:00" class="stats-time-input" />
             </div>
             <div class="stats-time-input-group">
-              <label for="statsTimeTo" data-i18n="statsTo">До:</label>
+              <label for="statsDateTo" data-i18n="statsTo">До:</label>
+              <input type="date" id="statsDateTo" class="stats-date-input" />
               <input type="time" id="statsTimeTo" value="23:59" class="stats-time-input" />
             </div>
-            <button class="range-btn" id="statsApplyTimeBtn" data-i18n="statsApply">Застосувати</button>
+            <button class="range-btn primary" id="statsApplyTimeBtn" data-i18n="statsApply">Застосувати</button>
             <div class="stats-interval-badge" id="statsIntervalBadge">00:00 – 23:59</div>
           </div>
         </div>
@@ -279,7 +288,7 @@
           <div class="card card-stats-hero card-discharge">
             <div class="card-header">
               <span class="card-label" data-i18n="statsDischargeTitle">Енергія розряду АКБ</span>
-              <span class="card-badge badge-amber" id="statsDischargeBadge">Розряд</span>
+              <span class="card-badge badge-amber" id="statsDischargeBadge" data-i18n="discharge">Розряд</span>
             </div>
             <div class="stats-hero-val val-amber" id="statsDischargeVal">— Вт·год</div>
             <div class="stats-sub-val" id="statsDischargeAhVal">⚡ — А·год</div>
@@ -307,7 +316,7 @@
           <div class="card card-stats-hero card-charge">
             <div class="card-header">
               <span class="card-label" data-i18n="statsChargeTitle">Енергія заряду АКБ</span>
-              <span class="card-badge badge-green" id="statsChargeBadge">Заряд</span>
+              <span class="card-badge badge-green" id="statsChargeBadge" data-i18n="charge">Заряд</span>
             </div>
             <div class="stats-hero-val val-green" id="statsChargeVal">— Вт·год</div>
             <div class="stats-sub-val" id="statsChargeAhVal">⚡ — А·год</div>
@@ -335,7 +344,7 @@
           <div class="card">
             <div class="card-header">
               <span class="card-label" data-i18n="statsBalanceTitle">Баланс та ефективність АКБ</span>
-              <span class="card-badge badge-blue" id="statsBalanceBadge">Ефективність</span>
+              <span class="card-badge badge-blue" id="statsBalanceBadge" data-i18n="statsEfficiency">Ефективність</span>
             </div>
             <div class="card-value" id="statsNetVal" style="font-size: 1.35rem;">— Вт·год</div>
             <div class="stats-sub-val" id="statsNetAhVal">⚡ — А·год</div>
@@ -343,28 +352,40 @@
             <div class="card-sub" id="statsSocDeltaDetails" style="margin-top: 4px;">Зміна заряду: — %</div>
           </div>
 
-          <!-- Energy Flow Overview -->
+          <!-- Energy Flow & Consumption Summary Card -->
           <div class="card">
             <div class="card-header">
               <span class="card-label" data-i18n="statsFlowTitle">Споживання та джерела за період</span>
             </div>
-            <div class="card-value" id="statsLoadKwhVal" style="font-size: 1.35rem;">Будинок: — кВт·год</div>
-            <div class="card-sub" id="statsGridPvDetails" style="margin-top: 10px;">Мережа: — кВт·год · Сонце: — кВт·год</div>
+            <div class="card-value" id="statsLoadKwhVal" style="font-size: 1.35rem;">Будинок (від інвертора): — кВт·год</div>
+            <div class="card-sub" id="statsGridPvDetails" style="margin-top: 10px;">☀️ Генерація PV: — кВт·год</div>
             <div class="card-sub" id="statsPointsDetails" style="margin-top: 4px;">Точок вимірювання: —</div>
           </div>
         </div>
 
-        <!-- Hourly Distribution Chart with Wh / Ah Toggle -->
+        <!-- Hourly Distribution Chart with Wh / Ah Toggle and Scrubber Readout -->
         <section class="card chart-full">
           <div class="card-header">
-            <div class="card-label" data-i18n="statsHourlyTitle">Погодинний розподіл енергії АКБ</div>
+            <div class="card-title-group">
+              <div class="card-label" id="statsHourlyTitle" data-i18n="statsHourlyTitle">Погодинний розподіл енергії АКБ</div>
+              <div class="card-sub-inline" id="statsHourlySubBadge" data-i18n="statsHourlyTotalPerHour">сумарно за кожну годину (не середнє)</div>
+            </div>
             <div class="stats-unit-toggle">
-              <button class="stats-unit-btn active" id="statsUnitWhBtn" data-unit="wh">Вт·год (Wh)</button>
-              <button class="stats-unit-btn" id="statsUnitAhBtn" data-unit="ah">А·год (Ah)</button>
+              <button class="stats-unit-btn active" id="statsUnitWhBtn" data-unit="wh" data-i18n="statsUnitWh">Вт·год (Wh)</button>
+              <button class="stats-unit-btn" id="statsUnitAhBtn" data-unit="ah" data-i18n="statsUnitAh">А·год (Ah)</button>
             </div>
           </div>
           <div class="chart-box-main">
             <canvas id="statsHourlyChart"></canvas>
+            <div class="chart-scrubber-line" id="statsHourlyScrubLine"></div>
+          </div>
+          <div class="chart-scrubber-readout" id="statsHourlyScrubReadout">
+            <div class="scrub-time"><span class="scrub-icon">🕒</span> <span id="statsHourlyTime">--:00</span></div>
+            <div class="scrub-pill"><span class="scrub-dot dot-green"></span> <span id="statsHourlyCharge">—</span></div>
+            <div class="scrub-pill"><span class="scrub-dot dot-amber"></span> <span id="statsHourlyDischarge">—</span></div>
+            <div class="scrub-pill"><span class="scrub-dot dot-purple"></span> <span id="statsHourlyLoad">—</span></div>
+            <div class="scrub-pill"><span class="scrub-dot dot-amber"></span> <span id="statsHourlyPv">—</span></div>
+            <div class="scrub-hint" data-i18n="scrubHint">Проведи пальцем по графіку</div>
           </div>
         </section>
       </section>

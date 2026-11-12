@@ -4,6 +4,11 @@
 (function (global) {
   let chartInstances = [];
   let scrubberCleanups = [];
+  let currentLoadBatUnit = "w"; // "w" or "a"
+
+  function setLoadBatUnit(unit) {
+    currentLoadBatUnit = unit;
+  }
 
   function cleanupScrubbers() {
     scrubberCleanups.forEach((fn) => {
@@ -71,9 +76,8 @@
     }
 
     function handleEnd() {
-      if (lineEl) {
-        lineEl.classList.remove("is-visible");
-      }
+      // User request: keep the white scrubber line visible at the selected/picked point!
+      // Do not remove "is-visible", so the crosshair line remains pinned to the picked timestamp.
     }
 
     let isTouching = false;
@@ -180,6 +184,34 @@
     const batVolt = records.map((r) => Number(r.batVolt || 0));
     const batCurr = records.map((r) => Number(r.batCurr || 0));
 
+    // AC Load Current (Amperes): use hardware-fetched loadCurr if present, with fallback
+    const loadCurr = records.map((r) => {
+      if (r.loadCurr !== undefined && r.loadCurr !== null && Number(r.loadCurr) > 0) {
+        return Math.round(Number(r.loadCurr) * 10) / 10;
+      }
+      const v = Number(r.outVolt || 0);
+      const va = Number(r.loadVA || 0);
+      const w = Number(r.loadActive || 0);
+      if (v >= 50) {
+        return Math.round((Math.max(va, w) / v) * 10) / 10;
+      }
+      return Math.round((w / 230) * 10) / 10;
+    });
+
+    const isLoadBatAmps = currentLoadBatUnit === "a";
+    const loadData = isLoadBatAmps ? loadCurr : loadActive;
+    const batData = isLoadBatAmps
+      ? batCurr.map((c) => Math.abs(c))
+      : batPower.map((p) => Math.abs(p));
+    const loadUnitStr = isLoadBatAmps ? t("unitA") : t("unitW");
+
+    // Dynamic Title for Load & Battery History
+    const loadBatTitleEl = document.getElementById("loadBatHistoryTitle");
+    if (loadBatTitleEl) {
+      const baseTitle = t("loadBatHistoryBase") || t("loadBatHistoryTitle");
+      loadBatTitleEl.textContent = `${baseTitle} (${loadUnitStr})`;
+    }
+
     const gridVolt = records.map((r) => Number(r.gridVolt || 0));
     const gridFreq = records.map((r) => Number(r.gridFreq || 0));
 
@@ -192,17 +224,34 @@
     // Stats updates for cards
     const loadBatStatsEl = document.getElementById("loadBatStats");
     if (loadBatStatsEl) {
-      const maxChg = Math.max(0, ...batPower);
-      const maxDis = Math.abs(Math.min(0, ...batPower));
-      let batStatText = "";
-      if (maxChg > 0 && maxDis > 0) {
-        batStatText = `${t("charge")}: +${maxChg} ${t("unitW")} · ${t("discharge")}: ${maxDis} ${t("unitW")}`;
-      } else if (maxChg > 0) {
-        batStatText = `${t("peakCharge")}: +${maxChg} ${t("unitW")}`;
-      } else if (maxDis > 0) {
-        batStatText = `${t("peakDischarge")}: ${maxDis} ${t("unitW")}`;
+      const maxLoadW = maxVal(loadActive);
+      const maxLoadA = maxVal(loadCurr);
+      const maxChgW = Math.max(0, ...batPower);
+      const maxChgA = Math.max(0, ...batCurr);
+      const maxDisW = Math.abs(Math.min(0, ...batPower));
+      const maxDisA = Math.abs(Math.min(0, ...batCurr));
+
+      if (isLoadBatAmps) {
+        let batStatText = "";
+        if (maxChgA > 0 && maxDisA > 0) {
+          batStatText = `${t("charge")}: +${maxChgA.toFixed(1)} ${t("unitA")} · ${t("discharge")}: ${maxDisA.toFixed(1)} ${t("unitA")}`;
+        } else if (maxChgA > 0) {
+          batStatText = `${t("peakCharge")}: +${maxChgA.toFixed(1)} ${t("unitA")}`;
+        } else if (maxDisA > 0) {
+          batStatText = `${t("peakDischarge")}: ${maxDisA.toFixed(1)} ${t("unitA")}`;
+        }
+        loadBatStatsEl.textContent = `${t("peakLoad")}: ${maxLoadA.toFixed(1)} ${t("unitA")}${batStatText ? " · " + batStatText : ""}`;
+      } else {
+        let batStatText = "";
+        if (maxChgW > 0 && maxDisW > 0) {
+          batStatText = `${t("charge")}: +${maxChgW} ${t("unitW")} (${maxChgA.toFixed(1)} ${t("unitA")}) · ${t("discharge")}: ${maxDisW} ${t("unitW")} (${maxDisA.toFixed(1)} ${t("unitA")})`;
+        } else if (maxChgW > 0) {
+          batStatText = `${t("peakCharge")}: +${maxChgW} ${t("unitW")} (${maxChgA.toFixed(1)} ${t("unitA")})`;
+        } else if (maxDisW > 0) {
+          batStatText = `${t("peakDischarge")}: ${maxDisW} ${t("unitW")} (${maxDisA.toFixed(1)} ${t("unitA")})`;
+        }
+        loadBatStatsEl.textContent = `${t("peakLoad")}: ${maxLoadW} ${t("unitW")} (${maxLoadA.toFixed(1)} ${t("unitA")})${batStatText ? " · " + batStatText : ""}`;
       }
-      loadBatStatsEl.textContent = `${t("peakLoad")}: ${maxVal(loadActive)} ${t("unitW")}${batStatText ? " · " + batStatText : ""}`;
     }
 
     const powerStatsEl = document.getElementById("powerStats");
@@ -409,8 +458,10 @@
           labels,
           datasets: [
             {
-              label: t("chartLoad"),
-              data: loadActive,
+              label: isLoadBatAmps
+                ? `${t("chartLoadCurrOnly")} (${t("unitA")})`
+                : `${t("chartLoadOnly")} (${t("unitW")})`,
+              data: loadData,
               borderColor: "#7c5cff",
               backgroundColor: "rgba(124, 92, 255, 0.16)",
               fill: true,
@@ -419,12 +470,16 @@
               borderWidth: 2,
             },
             {
-              label: t("chartBat"),
-              data: batPower.map((v) => Math.abs(v)),
+              label: isLoadBatAmps
+                ? `${t("chartBatCurrOnly")} (${t("unitA")})`
+                : `${t("chartBatPowerOnly")} (${t("unitW")})`,
+              data: batData,
               borderColor: "#22c55e",
               segment: {
                 borderColor: (ctx) => {
-                  const rawVal = batPower[ctx.p0DataIndex];
+                  const rawVal = isLoadBatAmps
+                    ? batCurr[ctx.p0DataIndex]
+                    : batPower[ctx.p0DataIndex];
                   return rawVal < 0 ? "#f59e0b" : "#22c55e";
                 },
               },
@@ -443,7 +498,7 @@
               ticks: {
                 display: !isMobile,
                 color: "#8c95b8",
-                callback: (v) => v + " " + t("unitW"),
+                callback: (v) => v + " " + loadUnitStr,
               },
               grid: { color: "rgba(255,255,255,0.05)" },
             },
@@ -463,25 +518,38 @@
       function updateLoadBatReadout(rec) {
         if (!rec) return;
         if (loadBatTimeEl) loadBatTimeEl.textContent = rec.timestamp.slice(11, 16);
+
+        const rawLoadA = Number(rec.loadCurr || 0);
+        const vOut = Number(rec.outVolt || 0);
+        const loadW = Math.max(0, Number(rec.loadActive || 0));
+        const loadVA = Math.max(0, Number(rec.loadVA || 0));
+        const loadA = rawLoadA > 0
+          ? rawLoadA.toFixed(1)
+          : (vOut >= 50 ? (Math.max(loadVA, loadW) / vOut).toFixed(1) : (loadW / 230).toFixed(1));
+
         if (loadBatLoadEl) {
-          const loadW = Math.max(0, Number(rec.loadActive || 0));
-          loadBatLoadEl.textContent = `🏠 ${loadW} ${t("unitW")}`;
+          loadBatLoadEl.textContent = `🏠 ${loadW} ${t("unitW")} · ${loadA} ${t("unitA")}`;
           loadBatLoadEl.className = loadW > 3000 ? "val-amber" : "val-purple";
         }
+
+        const rawBatA = Number(rec.batCurr || 0);
+        const batV = Number(rec.batVolt || 0);
+        const bp = Math.round(batV * Math.abs(rawBatA));
+        const aAbs = Math.abs(rawBatA).toFixed(1);
+
         if (loadBatBatEl) {
-          const bp = Math.round(Number(rec.batVolt || 0) * Number(rec.batCurr || 0));
-          const bpAbs = Math.abs(bp);
-          if (bp > 0) {
-            loadBatBatEl.textContent = `🔋 +${bpAbs} ${t("unitW")} (${t("charge")})`;
+          if (rawBatA > 0) {
+            loadBatBatEl.textContent = `🔋 +${bp} ${t("unitW")} · ${aAbs} ${t("unitA")} (${t("charge")})`;
             loadBatBatEl.className = "val-green";
-          } else if (bp < 0) {
-            loadBatBatEl.textContent = `🔋 ${bpAbs} ${t("unitW")} (${t("discharge")})`;
-            loadBatBatEl.className = bpAbs > 2000 ? "val-red" : "val-amber";
+          } else if (rawBatA < 0) {
+            loadBatBatEl.textContent = `🔋 ${bp} ${t("unitW")} · ${aAbs} ${t("unitA")} (${t("discharge")})`;
+            loadBatBatEl.className = bp > 2000 ? "val-red" : "val-amber";
           } else {
-            loadBatBatEl.textContent = `🔋 0 ${t("unitW")} (${t("buffer")})`;
+            loadBatBatEl.textContent = `🔋 0 ${t("unitW")} · 0.0 ${t("unitA")} (${t("buffer")})`;
             loadBatBatEl.className = "val-blue";
           }
         }
+
         if (loadBatModeEl) {
           const m = window.SmartESS?.I18n?.translateMode
             ? window.SmartESS.I18n.translateMode(rec.mode)
@@ -578,26 +646,36 @@
         if (!rec) return;
         if (powerTimeEl) powerTimeEl.textContent = rec.timestamp.slice(11, 16);
         if (powerPvEl) {
-          powerPvEl.textContent = `☀️ ${t("scrubPv")}: ${rec.pvPower} ${t("unitW")}`;
+          const pvA = Number(rec.pvCurr || 0);
+          const pvW = Number(rec.pvPower || 0);
+          const pvStr = pvA > 0 ? `${pvW} ${t("unitW")} · ${pvA.toFixed(1)} ${t("unitA")}` : `${pvW} ${t("unitW")}`;
+          powerPvEl.textContent = `☀️ ${t("scrubPv")}: ${pvStr}`;
         }
         if (powerVaEl) {
           powerVaEl.textContent = `⚡ ${t("scrubVa")}: ${rec.loadVA} ${t("unitVa")}`;
         }
         if (powerLoadEl) {
+          const rawLoadA = Number(rec.loadCurr || 0);
           const loadW = Math.max(0, Number(rec.loadActive || 0));
-          powerLoadEl.textContent = `🏠 ${t("scrubLoad")}: ${loadW} ${t("unitW")}`;
+          const vOut = Number(rec.outVolt || 0);
+          const loadVA = Math.max(0, Number(rec.loadVA || 0));
+          const loadA = rawLoadA > 0
+            ? rawLoadA.toFixed(1)
+            : (vOut >= 50 ? (Math.max(loadVA, loadW) / vOut).toFixed(1) : (loadW / 230).toFixed(1));
+          powerLoadEl.textContent = `🏠 ${t("scrubLoad")}: ${loadW} ${t("unitW")} · ${loadA} ${t("unitA")}`;
           powerLoadEl.className = loadW > 3000 ? "val-amber" : "val-blue";
         }
         if (powerBatEl) {
           const bp = Math.round(Number(rec.batVolt || 0) * Number(rec.batCurr || 0));
+          const aAbs = Math.abs(Number(rec.batCurr || 0)).toFixed(1);
           if (bp > 0) {
-            powerBatEl.textContent = `🔋 ${t("scrubBat")}: +${bp} ${t("unitW")}`;
+            powerBatEl.textContent = `🔋 ${t("scrubBat")}: +${bp} ${t("unitW")} · ${aAbs} ${t("unitA")}`;
             powerBatEl.className = "val-green";
           } else if (bp < 0) {
-            powerBatEl.textContent = `🔋 ${t("scrubBat")}: ${bp} ${t("unitW")}`;
+            powerBatEl.textContent = `🔋 ${t("scrubBat")}: ${bp} ${t("unitW")} · ${aAbs} ${t("unitA")}`;
             powerBatEl.className = Math.abs(bp) > 2000 ? "val-red" : "val-amber";
           } else {
-            powerBatEl.textContent = `🔋 ${t("scrubBat")}: 0 ${t("unitW")}`;
+            powerBatEl.textContent = `🔋 ${t("scrubBat")}: 0 ${t("unitW")} · 0.0 ${t("unitA")}`;
             powerBatEl.className = "val-blue";
           }
         }
@@ -768,10 +846,27 @@
       }
     }
 
+    // Count unique days in records to handle multi-day vs single-day correctly
+    const uniqueDays = new Set(
+      records.map((r) => r.timestamp.slice(0, 10)).filter(Boolean)
+    );
+    const dayCount = Math.max(1, uniqueDays.size);
+
+    // Update subtitle badge
+    const subBadge = document.getElementById("statsHourlySubBadge");
+    if (subBadge) {
+      if (dayCount > 1) {
+        subBadge.textContent = t("statsHourlyAvgDaily", { days: dayCount });
+      } else {
+        subBadge.textContent = t("statsHourlyTotalPerHour");
+      }
+    }
+
+    const divisor = dayCount;
     const factor = unit === "ah" ? 10 : 1;
-    const chargedData = charged.map((val) => Math.round(val * factor) / factor);
-    const dischargedData = discharged.map((val) => Math.round(val * factor) / factor);
-    const loadData = load.map((val) => (unit === "ah" ? 0 : Math.round(val)));
+    const chargedData = charged.map((val) => Math.round((val / divisor) * factor) / factor);
+    const dischargedData = discharged.map((val) => Math.round((val / divisor) * factor) / factor);
+    const loadData = load.map((val) => (unit === "ah" ? 0 : Math.round(val / divisor)));
 
     const datasets = [
       {
@@ -821,7 +916,27 @@
             labels: { color: "#eef0f8", boxWidth: 12, font: { size: 12 } },
           },
           tooltip: {
-            enabled: false,
+            enabled: true,
+            backgroundColor: "rgba(15, 23, 42, 0.95)",
+            titleColor: "#e2e8f0",
+            bodyColor: "#e2e8f0",
+            borderColor: "rgba(255, 255, 255, 0.15)",
+            borderWidth: 1,
+            padding: 10,
+            boxPadding: 4,
+            callbacks: {
+              title: (items) => {
+                const hourIdx = items[0].dataIndex;
+                const nextHour = (hourIdx + 1) % 24;
+                const timeStr = `${String(hourIdx).padStart(2, "0")}:00 – ${String(nextHour).padStart(2, "0")}:00`;
+                const modeStr = dayCount > 1
+                  ? ` (${t("statsHourlyAvgDaily", { days: dayCount })})`
+                  : ` (${t("statsHourlyTotalPerHour")})`;
+                return `${timeStr} · ${modeStr}`;
+              },
+              label: (item) =>
+                ` ${item.dataset.label}: ${item.parsed.y} ${unit === "ah" ? t("unitAh") : t("unitWh")}`,
+            },
           },
         },
         scales: {
@@ -847,6 +962,59 @@
     });
 
     chartInstances.push(statsHourlyChartInstance);
+
+    // Setup Touch Scrubber & Readout Panel Underneath Hourly Bar Chart
+    const hourlyLine = document.getElementById("statsHourlyScrubLine");
+    const hourlyReadout = document.getElementById("statsHourlyScrubReadout");
+    const hourlyTimeEl = document.getElementById("statsHourlyTime");
+    const hourlyChgEl = document.getElementById("statsHourlyCharge");
+    const hourlyDisEl = document.getElementById("statsHourlyDischarge");
+    const hourlyLoadEl = document.getElementById("statsHourlyLoad");
+    const hourlyPvEl = document.getElementById("statsHourlyPv");
+
+    function updateHourlyReadout(hourIdx) {
+      if (hourIdx < 0 || hourIdx > 23) return;
+      const nextHour = (hourIdx + 1) % 24;
+      if (hourlyTimeEl) {
+        hourlyTimeEl.textContent = `${String(hourIdx).padStart(2, "0")}:00 – ${String(nextHour).padStart(2, "0")}:00`;
+      }
+      if (hourlyChgEl) {
+        const cVal = chargedData[hourIdx];
+        hourlyChgEl.textContent = `⚡ +${cVal} ${unit === "ah" ? t("unitAh") : t("unitWh")} (${t("charge")})`;
+        hourlyChgEl.className = cVal > 0 ? "val-green" : "val-muted";
+      }
+      if (hourlyDisEl) {
+        const dVal = dischargedData[hourIdx];
+        hourlyDisEl.textContent = `🔋 ${dVal} ${unit === "ah" ? t("unitAh") : t("unitWh")} (${t("discharge")})`;
+        hourlyDisEl.className = dVal > 0 ? "val-amber" : "val-muted";
+      }
+      if (hourlyLoadEl) {
+        const lVal = Math.round(load[hourIdx] / divisor);
+        hourlyLoadEl.textContent = `🏠 ${lVal} ${t("unitWh")}`;
+      }
+      if (hourlyPvEl) {
+        let pvSum = 0;
+        for (const r of records) {
+          if (Number(r.timestamp.slice(11, 13)) === hourIdx) {
+            pvSum += Math.max(0, Number(r.pvPower || 0)) * (5 / 60);
+          }
+        }
+        hourlyPvEl.textContent = `☀️ ${Math.round(pvSum / divisor)} ${t("unitWh")}`;
+      }
+      if (hourlyReadout) hourlyReadout.classList.add("is-active");
+    }
+
+    const activeHour = new Date().getHours();
+    updateHourlyReadout(activeHour);
+
+    setupScrubber({
+      chart: statsHourlyChartInstance,
+      canvas: canvas,
+      lineEl: hourlyLine,
+      readoutEl: hourlyReadout,
+      records: hours.map((h) => ({ hour: h })),
+      onScrub: (_, idx) => updateHourlyReadout(idx),
+    });
   }
 
   // Global namespace export
@@ -855,6 +1023,8 @@
     renderAllCharts,
     renderHourlyStatsChart,
     setStatsUnit,
+    setLoadBatUnit,
+    getLoadBatUnit: () => currentLoadBatUnit,
     resetZoom,
     resizeCharts,
     destroyCharts,

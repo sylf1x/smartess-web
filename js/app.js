@@ -194,6 +194,34 @@ function setDate(dateStr) {
     inp.max = todayStr;
   });
   updateDateControls(dateStr);
+
+  // Automatically select the entire day (00:00 - 23:59) for Statistics tab
+  statsDateFrom = dateStr;
+  statsDateTo = dateStr;
+  statsTimeFrom = "00:00";
+  statsTimeTo = "23:59";
+  statsRange = "all";
+
+  const dFromInp = document.getElementById("statsDateFrom");
+  const dToInp = document.getElementById("statsDateTo");
+  const tFromInp = document.getElementById("statsTimeFrom");
+  const tToInp = document.getElementById("statsTimeTo");
+  if (dFromInp) {
+    dFromInp.value = dateStr;
+    dFromInp.max = todayStr;
+  }
+  if (dToInp) {
+    dToInp.value = dateStr;
+    dToInp.max = todayStr;
+  }
+  if (tFromInp) tFromInp.value = "00:00";
+  if (tToInp) tToInp.value = "23:59";
+
+  document.querySelectorAll("#statsPresetButtons .range-btn").forEach((b) => {
+    b.classList.toggle("active", b.dataset.statsRange === "all");
+  });
+  document.querySelectorAll(".stats-outage-chip").forEach((c) => c.classList.remove("active"));
+
   loadDashboard();
 }
 
@@ -229,10 +257,23 @@ function renderKPI(latest, dev) {
   lastLiveRecord = latest;
   currentDev = dev;
 
-  const model = latest.model || dev.alias;
+  const model = latest.model || dev.alias || "Inverter";
   const lastUpdateEl = document.getElementById("lastUpdate");
   if (lastUpdateEl) {
-    lastUpdateEl.textContent = `${model} (${dev.sn || "—"}) · ${t("updatedAt")}: ${latest.timestamp}`;
+    const snHtml = dev.sn
+      ? `<span class="dev-sn" title="S/N: ${dev.sn}">(${dev.sn})</span>`
+      : "";
+    lastUpdateEl.innerHTML = `
+      <span class="header-dev-chip">
+        <span class="dev-model">${model}</span>
+        ${snHtml}
+      </span>
+      <span class="header-time-chip">
+        <span class="time-dot"></span>
+        <span class="time-label">${t("updatedAt")}:</span>
+        <span class="time-val">${latest.timestamp}</span>
+      </span>
+    `;
   }
 
   const gridV = Number(latest.gridVolt || 0);
@@ -366,9 +407,18 @@ function renderKPI(latest, dev) {
 
   // 4. Load Card
   if (loadPowerEl) loadPowerEl.textContent = `${activeW} ${t("unitW")}`;
+
+  const rawLoadA = Number(latest.loadCurr || 0);
+  const vOut = Number(latest.outVolt || 0);
+  const loadVA = Number(latest.loadVA || 0);
+  const loadA = rawLoadA > 0
+    ? rawLoadA.toFixed(1)
+    : (vOut >= 50 ? (Math.max(loadVA, activeW) / vOut).toFixed(1) : (activeW / 230).toFixed(1));
+
   if (loadDetailsEl) {
-    loadDetailsEl.textContent = t("loadDetails", { v: latest.outVolt });
+    loadDetailsEl.textContent = `${t("loadDetails", { v: latest.outVolt })} · ${loadA} ${t("unitA")}`;
   }
+
   if (loadBadge) {
     if (activeW > 4500) {
       loadBadge.textContent = t("loadHigh");
@@ -593,17 +643,60 @@ function applyRangeAndRender() {
   renderRawTable([...filtered].reverse());
 }
 
-let statsRange = "all";
+let statsDateFrom = new Date().toLocaleDateString("en-CA");
 let statsTimeFrom = "00:00";
+let statsDateTo = new Date().toLocaleDateString("en-CA");
 let statsTimeTo = "23:59";
+let statsRange = "all";
 let currentStatsUnit = "wh";
+let currentStatsRecords = [];
 
-function calculateBatteryStats(records, timeFrom = "00:00", timeTo = "23:59") {
+async function getRecordsForDateRange(dev, dateFrom, dateTo) {
+  if (!dev) return [];
+  const selectedDate = datePicker ? datePicker.value : new Date().toLocaleDateString("en-CA");
+  if (dateFrom === dateTo) {
+    if (fullChronoRecords && fullChronoRecords.length > 0 && selectedDate === dateFrom) {
+      return fullChronoRecords;
+    }
+    const dat = await SmartESS.API.fetchFullDayData(dev, dateFrom);
+    if (!dat) return [];
+    return SmartESS.API.parseRows(dat).reverse();
+  }
+
+  const cur = new Date(dateFrom + "T00:00:00");
+  const end = new Date(dateTo + "T00:00:00");
+  const dates = [];
+  while (cur <= end) {
+    dates.push(cur.toLocaleDateString("en-CA"));
+    cur.setDate(cur.getDate() + 1);
+    if (dates.length > 14) break;
+  }
+
+  const allDays = await Promise.all(
+    dates.map(async (d) => {
+      try {
+        const dat = await SmartESS.API.fetchFullDayData(dev, d);
+        if (!dat) return [];
+        return SmartESS.API.parseRows(dat).reverse();
+      } catch {
+        return [];
+      }
+    })
+  );
+
+  return allDays.flat();
+}
+
+function calculateBatteryStats(records, fromStr = "00:00", toStr = "23:59") {
   if (!records || records.length === 0) return null;
 
   const filtered = records.filter((r) => {
-    const time = r.timestamp.slice(11, 16);
-    return time >= timeFrom && time <= timeTo;
+    if (fromStr.length <= 5) {
+      const time = r.timestamp.slice(11, 16);
+      return time >= fromStr && time <= toStr;
+    }
+    const ts = r.timestamp.slice(0, 16);
+    return ts >= fromStr && ts <= toStr;
   });
 
   if (filtered.length === 0) {
@@ -613,13 +706,13 @@ function calculateBatteryStats(records, timeFrom = "00:00", timeTo = "23:59") {
       chgWh: 0, chgAh: 0, peakChgW: 0, peakChgA: 0, avgChgW: 0, avgChgA: 0, chgMinutes: 0, avgChgV: 0,
       netWh: 0, netAh: 0, whEfficiency: 0, ahEfficiency: 0,
       socStart: 0, socEnd: 0, socDelta: 0,
-      loadKwh: "0.00", pvKwh: "0.00", gridKwh: "0.00",
+      loadKwh: "0.00", pvKwh: "0.00",
     };
   }
 
   let disWh = 0, disAh = 0, peakDisW = 0, peakDisA = 0, disMinutes = 0;
   let chgWh = 0, chgAh = 0, peakChgW = 0, peakChgA = 0, chgMinutes = 0;
-  let loadWh = 0, pvWh = 0, gridWh = 0;
+  let loadWh = 0, pvWh = 0;
 
   const dt = 5 / 60; // 5 min interval in hours
 
@@ -628,14 +721,9 @@ function calculateBatteryStats(records, timeFrom = "00:00", timeTo = "23:59") {
     const a = Number(r.batCurr || 0);
     const l = Math.max(0, Number(r.loadActive || 0));
     const pv = Math.max(0, Number(r.pvPower || 0));
-    const gv = Number(r.gridVolt || 0);
-    const ga = Number(r.gridCurr || 0);
 
     loadWh += l * dt;
     pvWh += pv * dt;
-    if (gv >= 50) {
-      gridWh += (gv * ga) * dt;
-    }
 
     if (a < 0) {
       const curA = Math.abs(a);
@@ -704,12 +792,44 @@ function calculateBatteryStats(records, timeFrom = "00:00", timeTo = "23:59") {
     socDelta,
     loadKwh: (loadWh / 1000).toFixed(2),
     pvKwh: (pvWh / 1000).toFixed(2),
-    gridKwh: (gridWh / 1000).toFixed(2),
   };
 }
 
 function renderStatsTab(records, selectedDate) {
   if (!records || records.length === 0) return;
+  currentStatsRecords = records;
+
+  const todayStr = new Date().toLocaleDateString("en-CA");
+
+  // If date was changed or not in custom range, ensure statsDateFrom/To match selectedDate for the whole day
+  if (statsRange !== "custom" && statsDateFrom !== selectedDate) {
+    statsDateFrom = selectedDate;
+    statsDateTo = selectedDate;
+    statsTimeFrom = "00:00";
+    statsTimeTo = "23:59";
+    statsRange = "all";
+    document.querySelectorAll("#statsPresetButtons .range-btn").forEach((b) => {
+      b.classList.toggle("active", b.dataset.statsRange === "all");
+    });
+    document.querySelectorAll(".stats-outage-chip").forEach((c) => c.classList.remove("active"));
+  }
+
+  // Keep input values in sync
+  const dateFromInput = document.getElementById("statsDateFrom");
+  const timeFromInput = document.getElementById("statsTimeFrom");
+  const dateToInput = document.getElementById("statsDateTo");
+  const timeToInput = document.getElementById("statsTimeTo");
+
+  if (dateFromInput) {
+    dateFromInput.value = statsDateFrom;
+    dateFromInput.max = todayStr;
+  }
+  if (timeFromInput) timeFromInput.value = statsTimeFrom;
+  if (dateToInput) {
+    dateToInput.value = statsDateTo;
+    dateToInput.max = todayStr;
+  }
+  if (timeToInput) timeToInput.value = statsTimeTo;
 
   // 1. Detect outages from records to populate Outage Preset Chips
   const outages = [];
@@ -758,6 +878,8 @@ function renderStatsTab(records, selectedDate) {
       outageChips.querySelectorAll(".stats-outage-chip").forEach((chip) => {
         chip.onclick = () => {
           statsRange = "outage";
+          statsDateFrom = selectedDate;
+          statsDateTo = selectedDate;
           statsTimeFrom = chip.dataset.start;
           statsTimeTo = chip.dataset.end;
           document
@@ -767,10 +889,10 @@ function renderStatsTab(records, selectedDate) {
           document
             .querySelectorAll("#statsPresetButtons .range-btn")
             .forEach((b) => b.classList.remove("active"));
-          const fromInput = document.getElementById("statsTimeFrom");
-          const toInput = document.getElementById("statsTimeTo");
-          if (fromInput) fromInput.value = statsTimeFrom;
-          if (toInput) toInput.value = statsTimeTo;
+          if (dateFromInput) dateFromInput.value = statsDateFrom;
+          if (timeFromInput) timeFromInput.value = statsTimeFrom;
+          if (dateToInput) dateToInput.value = statsDateTo;
+          if (timeToInput) timeToInput.value = statsTimeTo;
           renderStatsTab(records, selectedDate);
         };
       });
@@ -780,8 +902,10 @@ function renderStatsTab(records, selectedDate) {
     }
   }
 
-  // 2. Compute statistics for current statsTimeFrom -> statsTimeTo
-  const stats = calculateBatteryStats(records, statsTimeFrom, statsTimeTo);
+  // 2. Compute statistics for current date + time range
+  const fromDateTime = `${statsDateFrom} ${statsTimeFrom}`;
+  const toDateTime = `${statsDateTo} ${statsTimeTo}`;
+  const stats = calculateBatteryStats(records, fromDateTime, toDateTime);
   if (!stats) return;
 
   const formatDur = (mins) => {
@@ -800,7 +924,7 @@ function renderStatsTab(records, selectedDate) {
   }
   const disAhEl = document.getElementById("statsDischargeAhVal");
   if (disAhEl) {
-    disAhEl.textContent = `⚡ ${stats.disAh} ${t("unitAh")} (@ avg ${stats.avgDisV} ${t("unitV")})`;
+    disAhEl.textContent = `⚡ ${stats.disAh} ${t("unitAh")} (${t("statsAvgAt")} ${stats.avgDisV} ${t("unitV")})`;
   }
   const peakDisWEl = document.getElementById("statsPeakDisW");
   if (peakDisWEl) peakDisWEl.textContent = `${stats.peakDisW.toLocaleString()} ${t("unitW")}`;
@@ -820,7 +944,7 @@ function renderStatsTab(records, selectedDate) {
   }
   const chgAhEl = document.getElementById("statsChargeAhVal");
   if (chgAhEl) {
-    chgAhEl.textContent = `⚡ ${stats.chgAh} ${t("unitAh")} (@ avg ${stats.avgChgV} ${t("unitV")})`;
+    chgAhEl.textContent = `⚡ ${stats.chgAh} ${t("unitAh")} (${t("statsAvgAt")} ${stats.avgChgV} ${t("unitV")})`;
   }
   const peakChgWEl = document.getElementById("statsPeakChgW");
   if (peakChgWEl) peakChgWEl.textContent = `${stats.peakChgW.toLocaleString()} ${t("unitW")}`;
@@ -858,11 +982,11 @@ function renderStatsTab(records, selectedDate) {
   // Energy Flow
   const loadKwhEl = document.getElementById("statsLoadKwhVal");
   if (loadKwhEl) {
-    loadKwhEl.textContent = `${t("loadTitle")}: ${stats.loadKwh} ${t("unitKwh")}`;
+    loadKwhEl.textContent = `${t("statsLoadInvTitle")}: ${stats.loadKwh} ${t("unitKwh")}`;
   }
   const flowDetailsEl = document.getElementById("statsGridPvDetails");
   if (flowDetailsEl) {
-    flowDetailsEl.textContent = `${t("gridTitle")}: ${stats.gridKwh} ${t("unitKwh")} · PV: ${stats.pvKwh} ${t("unitKwh")}`;
+    flowDetailsEl.textContent = `☀️ ${t("statsSolarGen")}: ${stats.pvKwh} ${t("unitKwh")}`;
   }
   const pointsEl = document.getElementById("statsPointsDetails");
   if (pointsEl) {
@@ -872,7 +996,11 @@ function renderStatsTab(records, selectedDate) {
   // Interval Badge
   const intervalBadge = document.getElementById("statsIntervalBadge");
   if (intervalBadge) {
-    intervalBadge.textContent = `${statsTimeFrom} – ${statsTimeTo}`;
+    if (statsDateFrom === statsDateTo) {
+      intervalBadge.textContent = `${statsDateFrom} · ${statsTimeFrom}–${statsTimeTo}`;
+    } else {
+      intervalBadge.textContent = `${statsDateFrom} ${statsTimeFrom} ➔ ${statsDateTo} ${statsTimeTo}`;
+    }
   }
 
   // Update Hourly Bar Chart
@@ -988,6 +1116,18 @@ tabButtons.forEach((btn) => {
         tabPanes[key].classList.toggle("active", key === targetTab);
       }
     });
+
+    if (targetTab === "tabStats") {
+      const curSelected = datePicker ? datePicker.value : new Date().toLocaleDateString("en-CA");
+      if (statsRange !== "custom" && statsDateFrom !== curSelected && fullChronoRecords.length > 0) {
+        statsDateFrom = curSelected;
+        statsDateTo = curSelected;
+        statsTimeFrom = "00:00";
+        statsTimeTo = "23:59";
+        statsRange = "all";
+        renderStatsTab(fullChronoRecords, curSelected);
+      }
+    }
 
     // Resize Chart.js canvases in the newly active tab
     setTimeout(() => {
@@ -1120,6 +1260,19 @@ document.querySelectorAll(".today-btn").forEach((btn) => {
   };
 });
 
+// Direct element fallbacks for Overview
+if (datePicker) {
+  datePicker.onchange = () => setDate(datePicker.value);
+}
+if (prevDayBtn) prevDayBtn.onclick = () => stepDate(-1);
+if (nextDayBtn) nextDayBtn.onclick = () => stepDate(1);
+if (todayBtn) {
+  todayBtn.onclick = () => {
+    const todayStr = new Date().toLocaleDateString("en-CA");
+    setDate(todayStr);
+  };
+}
+
 // Statistics Tab Controls
 const statsPresetButtons = document.getElementById("statsPresetButtons");
 if (statsPresetButtons) {
@@ -1135,6 +1288,10 @@ if (statsPresetButtons) {
     btn.classList.add("active");
     const range = btn.dataset.statsRange;
     statsRange = range;
+    const curDate = datePicker ? datePicker.value : new Date().toLocaleDateString("en-CA");
+    statsDateFrom = curDate;
+    statsDateTo = curDate;
+
     if (range === "all") {
       statsTimeFrom = "00:00";
       statsTimeTo = "23:59";
@@ -1151,36 +1308,119 @@ if (statsPresetButtons) {
       statsTimeFrom = "18:00";
       statsTimeTo = "23:59";
     }
-    const fromInput = document.getElementById("statsTimeFrom");
-    const toInput = document.getElementById("statsTimeTo");
-    if (fromInput) fromInput.value = statsTimeFrom;
-    if (toInput) toInput.value = statsTimeTo;
-    renderStatsTab(
-      fullChronoRecords,
-      datePicker ? datePicker.value : new Date().toLocaleDateString("en-CA"),
-    );
+
+    const dateFromInput = document.getElementById("statsDateFrom");
+    const timeFromInput = document.getElementById("statsTimeFrom");
+    const dateToInput = document.getElementById("statsDateTo");
+    const timeToInput = document.getElementById("statsTimeTo");
+
+    if (dateFromInput) dateFromInput.value = statsDateFrom;
+    if (timeFromInput) timeFromInput.value = statsTimeFrom;
+    if (dateToInput) dateToInput.value = statsDateTo;
+    if (timeToInput) timeToInput.value = statsTimeTo;
+
+    renderStatsTab(fullChronoRecords, curDate);
   };
 }
 
+const statsDateFromInp = document.getElementById("statsDateFrom");
+const statsDateToInp = document.getElementById("statsDateTo");
+const statsTimeFromInp = document.getElementById("statsTimeFrom");
+const statsTimeToInp = document.getElementById("statsTimeTo");
 const statsApplyTimeBtn = document.getElementById("statsApplyTimeBtn");
-if (statsApplyTimeBtn) {
-  statsApplyTimeBtn.onclick = () => {
-    const fromInput = document.getElementById("statsTimeFrom");
-    const toInput = document.getElementById("statsTimeTo");
-    if (fromInput && fromInput.value) statsTimeFrom = fromInput.value;
-    if (toInput && toInput.value) statsTimeTo = toInput.value;
-    statsRange = "custom";
-    document
-      .querySelectorAll("#statsPresetButtons .range-btn")
-      .forEach((b) => b.classList.remove("active"));
-    document
-      .querySelectorAll(".stats-outage-chip")
-      .forEach((c) => c.classList.remove("active"));
-    renderStatsTab(
-      fullChronoRecords,
-      datePicker ? datePicker.value : new Date().toLocaleDateString("en-CA"),
-    );
+
+async function applyCustomStatsRange(autoDefaultWholeDay = false) {
+  const dFrom = statsDateFromInp?.value;
+  let tFrom = statsTimeFromInp?.value;
+  let dTo = statsDateToInp?.value;
+  let tTo = statsTimeToInp?.value;
+
+  if (dFrom) statsDateFrom = dFrom;
+  if (dTo) statsDateTo = dTo;
+
+  if (autoDefaultWholeDay) {
+    statsTimeFrom = "00:00";
+    statsTimeTo = "23:59";
+    if (statsTimeFromInp) statsTimeFromInp.value = statsTimeFrom;
+    if (statsTimeToInp) statsTimeToInp.value = statsTimeTo;
+  } else {
+    if (tFrom) statsTimeFrom = tFrom;
+    if (tTo) statsTimeTo = tTo;
+  }
+
+  if (statsDateFrom > statsDateTo) {
+    statsDateTo = statsDateFrom;
+    if (statsDateToInp) statsDateToInp.value = statsDateTo;
+  }
+
+  const isWholeDay = statsTimeFrom === "00:00" && statsTimeTo === "23:59";
+  statsRange = (statsDateFrom === statsDateTo && isWholeDay) ? "all" : "custom";
+
+  document
+    .querySelectorAll("#statsPresetButtons .range-btn")
+    .forEach((b) => b.classList.toggle("active", statsRange === "all" && b.dataset.statsRange === "all"));
+  document
+    .querySelectorAll(".stats-outage-chip")
+    .forEach((c) => c.classList.remove("active"));
+
+  const curSelected = datePicker ? datePicker.value : "";
+  if (
+    statsDateFrom === statsDateTo &&
+    statsDateFrom === curSelected &&
+    fullChronoRecords.length > 0
+  ) {
+    renderStatsTab(fullChronoRecords, statsDateFrom);
+  } else if (statsDateFrom === statsDateTo) {
+    setDate(statsDateFrom);
+  } else {
+    if (statsApplyTimeBtn) {
+      statsApplyTimeBtn.disabled = true;
+      statsApplyTimeBtn.textContent = t("loading");
+    }
+    try {
+      const records = await getRecordsForDateRange(
+        currentDev,
+        statsDateFrom,
+        statsDateTo,
+      );
+      renderStatsTab(records, statsDateFrom);
+    } finally {
+      if (statsApplyTimeBtn) {
+        statsApplyTimeBtn.disabled = false;
+        statsApplyTimeBtn.textContent = t("statsApply");
+      }
+    }
+  }
+}
+
+if (statsDateFromInp) {
+  statsDateFromInp.onchange = () => {
+    const val = statsDateFromInp.value;
+    if (!val) return;
+    statsDateFrom = val;
+    if (!statsDateToInp?.value || statsDateToInp.value <= val || statsDateTo === statsDateFrom) {
+      if (statsDateToInp) statsDateToInp.value = val;
+      statsDateTo = val;
+    }
+    applyCustomStatsRange(true);
   };
+}
+
+if (statsDateToInp) {
+  statsDateToInp.onchange = () => {
+    const val = statsDateToInp.value;
+    if (!val) return;
+    statsDateTo = val;
+    if (statsDateTo < statsDateFrom) {
+      statsDateFrom = statsDateTo;
+      if (statsDateFromInp) statsDateFromInp.value = statsDateTo;
+    }
+    applyCustomStatsRange(true);
+  };
+}
+
+if (statsApplyTimeBtn) {
+  statsApplyTimeBtn.onclick = () => applyCustomStatsRange(false);
 }
 
 const unitWhBtn = document.getElementById("statsUnitWhBtn");
@@ -1191,7 +1431,8 @@ if (unitWhBtn && unitAhBtn) {
     unitWhBtn.classList.add("active");
     unitAhBtn.classList.remove("active");
     if (window.SmartESS?.Charts?.renderHourlyStatsChart) {
-      window.SmartESS.Charts.renderHourlyStatsChart(fullChronoRecords, "wh");
+      const recs = currentStatsRecords.length > 0 ? currentStatsRecords : fullChronoRecords;
+      window.SmartESS.Charts.renderHourlyStatsChart(recs, "wh");
     }
   };
   unitAhBtn.onclick = () => {
@@ -1199,8 +1440,30 @@ if (unitWhBtn && unitAhBtn) {
     unitAhBtn.classList.add("active");
     unitWhBtn.classList.remove("active");
     if (window.SmartESS?.Charts?.renderHourlyStatsChart) {
-      window.SmartESS.Charts.renderHourlyStatsChart(fullChronoRecords, "ah");
+      const recs = currentStatsRecords.length > 0 ? currentStatsRecords : fullChronoRecords;
+      window.SmartESS.Charts.renderHourlyStatsChart(recs, "ah");
     }
+  };
+}
+
+const loadBatUnitWBtn = document.getElementById("loadBatUnitWBtn");
+const loadBatUnitABtn = document.getElementById("loadBatUnitABtn");
+if (loadBatUnitWBtn && loadBatUnitABtn) {
+  loadBatUnitWBtn.onclick = () => {
+    loadBatUnitWBtn.classList.add("active");
+    loadBatUnitABtn.classList.remove("active");
+    if (window.SmartESS?.Charts?.setLoadBatUnit) {
+      window.SmartESS.Charts.setLoadBatUnit("w");
+    }
+    applyRangeAndRender();
+  };
+  loadBatUnitABtn.onclick = () => {
+    loadBatUnitABtn.classList.add("active");
+    loadBatUnitWBtn.classList.remove("active");
+    if (window.SmartESS?.Charts?.setLoadBatUnit) {
+      window.SmartESS.Charts.setLoadBatUnit("a");
+    }
+    applyRangeAndRender();
   };
 }
 
@@ -1213,6 +1476,7 @@ if (refreshBtn) refreshBtn.onclick = loadDashboard;
     openLoginModal,
     closeLoginModal,
     applyRangeAndRender,
+    calculateBatteryStats,
   };
   global.openLoginModal = openLoginModal;
 
