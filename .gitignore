@@ -1,0 +1,14 @@
+# IDE & OS files
+.vs/
+.vscode/
+.idea/
+*.suo
+*.user
+Thumbs.db
+.DS_Store
+
+# Temporary research scripts containing local test credentials & tokens
+discovering purpose/
+
+# Logs & temp files
+*.log

@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="uk">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title data-i18n="appTitle">Моніторинг інвертора — SmartESS</title>
+    <link rel="stylesheet" href="css/style.css" />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
+  </head>
+  <body>
+    <div class="container">
+      <!-- Header -->
+      <header>
+        <div class="title-group">
+          <h1 data-i18n="appTitle">Моніторинг інвертора</h1>
+          <div class="subtitle" id="lastUpdate" data-i18n="waitingAuth">Очікування авторизації...</div>
+        </div>
+        <div class="controls">
+          <select id="deviceSelect" style="display: none"></select>
+
+          <!-- Custom Styled Date Selector -->
+          <div class="date-selector">
+            <button class="date-nav-btn" id="prevDayBtn" title="Попередній день">◀</button>
+            <div class="date-display-wrap" id="dateDisplayWrap" title="Натисни, щоб відкрити календар">
+              <span class="date-display-icon">📅</span>
+              <span class="date-display-text" id="dateDisplayText">Сьогодні</span>
+              <span class="date-chevron">▾</span>
+              <input type="date" id="datePicker" class="date-input-overlay" />
+            </div>
+            <button class="date-nav-btn" id="nextDayBtn" title="Наступний день">▶</button>
+            <button class="date-today-btn is-today" id="todayBtn" data-i18n="today">Сьогодні</button>
+          </div>
+
+          <!-- Language Selector -->
+          <select id="langSelect" class="lang-select" title="Мова / Язык / Language">
+            <option value="uk">UA</option>
+            <option value="ru">RU</option>
+            <option value="en">EN</option>
+          </select>
+
+          <button class="primary" id="refreshBtn" data-i18n="refresh">Оновити</button>
+          <button id="resetZoomHeaderBtn" data-i18n="resetZoom">Скидання зуму</button>
+          <button id="accountBtn" data-i18n="account">Акаунт</button>
+        </div>
+      </header>
+
+      <div class="error-banner" id="errorBox"></div>
+
+      <!-- Hero Power Source Banner -->
+      <div class="power-banner mode-grid" id="powerBanner">
+        <div class="banner-left">
+          <div class="banner-icon" id="bannerIcon">⚡</div>
+          <div>
+            <div class="banner-title" id="bannerTitle" data-i18n="bannerInitTitle">Визначення джерела живлення...</div>
+            <div class="banner-sub" id="bannerSub" data-i18n="bannerInitSub">Зв'язок з інвертором встановлюється</div>
+          </div>
+        </div>
+        <div class="banner-badge" id="bannerBadge">—</div>
+      </div>
+
+      <!-- Navigation Tabs -->
+      <nav class="nav-tabs">
+        <button class="tab-btn active" data-tab="tabMain" data-i18n="tabMain">★ Головне</button>
+        <button class="tab-btn" data-tab="tabAdvanced" data-i18n="tabAdvanced">⚙️ Розширені параметри</button>
+      </nav>
+
+      <!-- TAB 1: MAIN (Mobile & Daily Essentials) -->
+      <main id="tabMain" class="tab-pane active">
+        <!-- Real-Time Live Status Header -->
+        <div class="section-title-row">
+          <span class="section-title" data-i18n="currentStatus">Поточний стан</span>
+          <span class="live-dot-badge"><span class="live-pulse"></span> <span data-i18n="live">В РЕАЛЬНОМУ ЧАСІ</span></span>
+        </div>
+
+        <!-- 3 Core KPI Cards -->
+        <section class="grid-kpi">
+          <!-- Grid Card -->
+          <div class="card">
+            <div class="card-header">
+              <span class="card-label" data-i18n="gridTitle">Міська мережа</span>
+              <span class="card-badge badge-green" id="gridStatusBadge">В мережі</span>
+            </div>
+            <div class="card-value" id="gridVolt">— В</div>
+            <div class="card-sub" id="gridDetails">Частота: — Гц · Струм: — А</div>
+          </div>
+
+          <!-- Battery Card -->
+          <div class="card">
+            <div class="card-header">
+              <span class="card-label" data-i18n="batteryTitle">Батарея (LiFePO4)</span>
+              <span class="card-badge badge-green" id="batStateBadge">—</span>
+            </div>
+            <div class="battery-widget">
+              <div class="battery-shell" id="batteryShell">
+                <div class="battery-cap"></div>
+                <div class="battery-level" id="batVisualFill"></div>
+                <span class="battery-charge-icon" id="batChargeIcon">⚡</span>
+              </div>
+              <div class="battery-val-group">
+                <div class="card-value" id="batSoc" style="margin: 0;">— %</div>
+                <div class="battery-sub-state val-green" id="batPowerRate">— Вт</div>
+              </div>
+            </div>
+            <div class="card-sub" id="batDetails" style="margin-top: 8px;">Напруга: — В · Струм: — А</div>
+          </div>
+
+          <!-- House Load Card -->
+          <div class="card">
+            <div class="card-header">
+              <span class="card-label" data-i18n="loadTitle">Навантаження будинку</span>
+              <span class="card-badge badge-blue" id="loadBadge">В нормі</span>
+            </div>
+            <div class="card-value" id="loadPower">— Вт</div>
+            <div class="card-sub" id="loadDetails">Вихід інвертора: — В</div>
+          </div>
+        </section>
+
+        <!-- Grid 24h Infographic Section -->
+        <section class="grid-infographic">
+          <div class="infographic-header">
+            <div class="infographic-title">
+              <span>📊 <span data-i18n="infographicTitle">Інфографіка міської мережі за</span> <span id="infographicDateLabel" style="color: #38bdf8;">день</span></span>
+            </div>
+            <div class="infographic-stats">
+              <span class="stat-pill pill-green" id="statGridOnline">🟢 В мережі: —</span>
+              <span class="stat-pill pill-red" id="statGridOffline">🔴 Відключення: —</span>
+              <span class="stat-pill" id="statGridVoltRange">⚡ 220 В</span>
+              <span class="stat-pill pill-green" id="statGridBatRange">🔋 АКБ: — %</span>
+              <button class="btn-reset-zoom" id="resetZoomGridBtn" data-i18n="resetZoom">Скидання зуму</button>
+            </div>
+          </div>
+
+          <!-- Timeline Ribbon -->
+          <div class="timeline-container">
+            <div class="timeline-ribbon" id="gridTimelineRibbon"></div>
+            <div class="timeline-ticks">
+              <span>00:00</span>
+              <span>04:00</span>
+              <span>08:00</span>
+              <span>12:00</span>
+              <span>16:00</span>
+              <span>20:00</span>
+              <span>24:00</span>
+            </div>
+            <div class="timeline-legend">
+              <div class="legend-item"><span class="legend-dot" style="background:#22c55e"></span> <span data-i18n="legendOnline">В мережі (&ge;180В)</span></div>
+              <div class="legend-item"><span class="legend-dot" style="background:#f59e0b"></span> <span data-i18n="legendWarning">Нестабільна (&lt;180В)</span></div>
+              <div class="legend-item"><span class="legend-dot" style="background:#ef4444"></span> <span data-i18n="legendOffline">Відключення світла (0В)</span></div>
+            </div>
+          </div>
+
+          <!-- Grid Voltage & Frequency Chart -->
+          <div class="chart-box-main">
+            <canvas id="gridChart"></canvas>
+          </div>
+        </section>
+
+        <!-- Load & Battery History Chart -->
+        <section class="card chart-full">
+          <div class="card-header">
+            <div class="card-label" data-i18n="loadBatHistoryTitle">Історія навантаження будинку та роботи АКБ (Вт)</div>
+            <div style="display: flex; align-items: center; gap: 10px;">
+              <div class="card-stats" id="loadBatStats">—</div>
+              <button class="btn-reset-zoom" id="resetZoomLoadBtn" data-i18n="resetZoom">Скидання зуму</button>
+            </div>
+          </div>
+          <div class="chart-box-main">
+            <canvas id="loadBatChart"></canvas>
+          </div>
+        </section>
+      </main>
+
+      <!-- TAB 2: ADVANCED (Detailed Analytics, Solar, Thermals, Raw Table) -->
+      <section id="tabAdvanced" class="tab-pane">
+        <!-- Advanced KPI Grid -->
+        <div class="grid-kpi">
+          <div class="card">
+            <div class="card-header">
+              <span class="card-label" data-i18n="pvTitle">Сонячні панелі (PV)</span>
+            </div>
+            <div class="card-value" id="pvPower">— Вт</div>
+            <div class="card-sub" id="pvDetails">Напруга: — В · Струм: — А</div>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <span class="card-label" data-i18n="dayEnergyTitle">Енергія за день</span>
+            </div>
+            <div class="card-value" id="dayEnergy">— кВт·год</div>
+            <div class="card-sub" id="dayEnergyDetails">Мережа: — · АКБ: —</div>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <span class="card-label" data-i18n="tempTitle">Температури вузлів</span>
+            </div>
+            <div class="card-value" id="invTemp">— °C</div>
+            <div class="card-sub" id="tempDetails">PV: — °C · Радіатор B: — °C</div>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <span class="card-label" data-i18n="machineStateTitle">Режим інвертора</span>
+            </div>
+            <div class="card-value" id="machineState" style="font-size: 1.3rem;">—</div>
+            <div class="card-sub" id="machineDetails" data-i18n="machineStateSub">Статус обладнання</div>
+          </div>
+        </div>
+
+        <!-- Time Range Toolbar -->
+        <div class="toolbar">
+          <div class="range-group" id="rangeButtons">
+            <button class="range-btn active" data-range="all" data-i18n="rangeAll">Весь день</button>
+            <button class="range-btn" data-range="00-06" data-i18n="range0006">Ніч 00–06</button>
+            <button class="range-btn" data-range="06-12" data-i18n="range0612">Ранок 06–12</button>
+            <button class="range-btn" data-range="12-18" data-i18n="range1218">День 12–18</button>
+            <button class="range-btn" data-range="18-24" data-i18n="range1824">Вечір 18–24</button>
+          </div>
+          <div style="display: flex; align-items: center; gap: 10px">
+            <span class="zoom-hint" data-i18n="zoomHint">Виділи область мишкою для зуму</span>
+            <button id="resetZoomBtn" class="btn-reset-zoom" data-i18n="resetZoom">Скидання зуму</button>
+          </div>
+        </div>
+
+        <!-- Full Power Balance Chart -->
+        <div class="card chart-full">
+          <div class="card-header">
+            <div class="card-label" data-i18n="powerBalanceTitle">Повний баланс потужності (Сонце, Навантаження, АКБ)</div>
+            <div class="card-stats" id="powerStats">—</div>
+          </div>
+          <div class="chart-box-lg">
+            <canvas id="powerChart"></canvas>
+          </div>
+        </div>
+
+        <!-- Thermal Profile Chart -->
+        <div class="card chart-full">
+          <div class="card-header">
+            <div class="card-label" data-i18n="thermalProfileTitle">Температурний профіль вузлів (°C)</div>
+            <div class="card-stats" id="tempStats">—</div>
+          </div>
+          <div class="chart-box">
+            <canvas id="tempChart"></canvas>
+          </div>
+        </div>
+
+        <!-- Collapsible Raw Table -->
+        <details class="raw-table-wrap">
+          <summary>
+            <span data-i18n="rawTableTitle">Детальна таблиця замірів за день</span> (<span id="rowCountLabel">0</span> <span data-i18n="rowCount">записів</span>)
+          </summary>
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th data-i18n="timeCol">Час</th>
+                  <th data-i18n="modeCol">Режим</th>
+                  <th>PV (Вт)</th>
+                  <th>PV (В)</th>
+                  <th data-i18n="loadCol">Навантаження (ВА / Вт)</th>
+                  <th data-i18n="batSocCol">АКБ (%)</th>
+                  <th data-i18n="batVoltCol">АКБ (В)</th>
+                  <th data-i18n="batCurrCol">Струм АКБ (А)</th>
+                  <th data-i18n="gridCol">Мережа (В / Гц)</th>
+                  <th data-i18n="outCol">Вихід (В)</th>
+                  <th data-i18n="tempCol">T інв. (°C)</th>
+                </tr>
+              </thead>
+              <tbody id="rawTableBody"></tbody>
+            </table>
+          </div>
+        </details>
+      </section>
+    </div>
+
+    <!-- Login Modal -->
+    <dialog id="loginModal">
+      <h3 style="margin-bottom: 6px" data-i18n="loginTitle">Вхід у SmartESS</h3>
+      <p style="font-size: 0.83rem; color: var(--muted); margin-bottom: 14px" data-i18n="loginSub">
+        Інвертори визначаться автоматично після входу. Дані зберігаються тільки у твоєму браузері.
+      </p>
+      <div class="form-row">
+        <label data-i18n="loginUserLabel">Логін (Username)</label>
+        <input id="inpUser" autocomplete="username" data-i18n-placeholder="loginUserPlaceholder" placeholder="Введи логін SmartESS" />
+      </div>
+      <div class="form-row">
+        <label data-i18n="loginPassLabel">Пароль</label>
+        <input id="inpPass" type="password" autocomplete="current-password" data-i18n-placeholder="loginPassPlaceholder" placeholder="Введи пароль" />
+      </div>
+      <div class="modal-error" id="loginError"></div>
+      <div class="modal-actions">
+        <button id="logoutBtn" style="margin-right: auto; color: #fca5a5" data-i18n="logoutBtn">Вийти</button>
+        <button id="closeModal" data-i18n="closeBtn">Закрити</button>
+        <button class="primary" id="loginSubmit" data-i18n="loginSubmit">Увійти</button>
+      </div>
+    </dialog>
+
+    <script src="js/crypto.js"></script>
+    <script src="js/i18n.js"></script>
+    <script src="js/api.js"></script>
+    <script src="js/charts.js"></script>
+    <script src="js/app.js"></script>
+  </body>
+</html>
