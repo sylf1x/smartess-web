@@ -64,6 +64,10 @@
           <span class="tab-icon">★</span>
           <span data-i18n="tabMain">Головне</span>
         </button>
+        <button class="tab-btn" data-tab="tabStats">
+          <span class="tab-icon">📊</span>
+          <span data-i18n="tabStats">Статистика</span>
+        </button>
         <button class="tab-btn" data-tab="tabAdvanced">
           <span class="tab-icon">⚙️</span>
           <span data-i18n="tabAdvanced">Розширені</span>
@@ -213,8 +217,179 @@
         </section>
       </main>
 
-      <!-- TAB 2: ADVANCED (Detailed Analytics, Solar, Thermals, Raw Table) -->
+      <!-- TAB 2: STATISTICS (Battery Energy, Discharged/Charged, Custom Time Range) -->
+      <section id="tabStats" class="tab-pane">
+        <!-- Date Selector Toolbar -->
+        <div class="history-toolbar">
+          <div class="history-title-wrap">
+            <span class="history-icon">📅</span>
+            <span class="history-title" data-i18n="statsPeriodTitle">Період статистики:</span>
+          </div>
+
+          <div class="date-selector">
+            <button class="date-nav-btn prev-day-btn" data-i18n-title="prevDay" title="Попередній день">◀</button>
+            <label class="date-display-wrap" for="datePickerStats" data-i18n-title="openCalendar" title="Натисни, щоб відкрити календар">
+              <span class="date-display-icon">📅</span>
+              <span class="date-display-text date-display-text-stats">Сьогодні</span>
+              <span class="date-chevron">▾</span>
+              <input type="date" id="datePickerStats" class="date-input-overlay date-picker-input" />
+            </label>
+            <button class="date-nav-btn next-day-btn" data-i18n-title="nextDay" title="Наступний день">▶</button>
+            <button class="date-today-btn is-today today-btn" data-i18n="today">Сьогодні</button>
+          </div>
+        </div>
+
+        <!-- Time Range & Outage Presets Card -->
+        <div class="card stats-filter-card">
+          <div class="stats-filter-section">
+            <div class="stats-filter-label" data-i18n="statsCustomTime">Вибір часу розрахунку:</div>
+            <div class="range-group" id="statsPresetButtons">
+              <button class="range-btn active" data-stats-range="all" data-i18n="rangeAll">Весь день</button>
+              <button class="range-btn" data-stats-range="00-06" data-i18n="range0006">Ніч 00–06</button>
+              <button class="range-btn" data-stats-range="06-12" data-i18n="range0612">Ранок 06–12</button>
+              <button class="range-btn" data-stats-range="12-18" data-i18n="range1218">День 12–18</button>
+              <button class="range-btn" data-stats-range="18-24" data-i18n="range1824">Вечір 18–24</button>
+            </div>
+          </div>
+
+          <!-- Outage Presets Container (Populated dynamically when outages exist) -->
+          <div class="stats-outages-row" id="statsOutagesRow" style="display: none;">
+            <span class="stats-filter-sublabel">🔴 <span data-i18n="statsOutagesPreset">Відключення:</span></span>
+            <div class="stats-outage-chips" id="statsOutageChips"></div>
+          </div>
+
+          <!-- Custom Time Range Form -->
+          <div class="stats-custom-time-row">
+            <div class="stats-time-input-group">
+              <label for="statsTimeFrom" data-i18n="statsFrom">Від:</label>
+              <input type="time" id="statsTimeFrom" value="00:00" class="stats-time-input" />
+            </div>
+            <div class="stats-time-input-group">
+              <label for="statsTimeTo" data-i18n="statsTo">До:</label>
+              <input type="time" id="statsTimeTo" value="23:59" class="stats-time-input" />
+            </div>
+            <button class="range-btn" id="statsApplyTimeBtn" data-i18n="statsApply">Застосувати</button>
+            <div class="stats-interval-badge" id="statsIntervalBadge">00:00 – 23:59</div>
+          </div>
+        </div>
+
+        <!-- 4 Core Battery & Energy Metric Cards -->
+        <div class="grid-kpi">
+          <!-- Discharged Card -->
+          <div class="card card-stats-hero card-discharge">
+            <div class="card-header">
+              <span class="card-label" data-i18n="statsDischargeTitle">Енергія розряду АКБ</span>
+              <span class="card-badge badge-amber" id="statsDischargeBadge">Розряд</span>
+            </div>
+            <div class="stats-hero-val val-amber" id="statsDischargeVal">— Вт·год</div>
+            <div class="stats-sub-val" id="statsDischargeAhVal">⚡ — А·год</div>
+            <div class="stats-meta-grid">
+              <div class="stats-meta-item">
+                <span class="meta-label" data-i18n="statsPeakPower">Пікова потужність</span>
+                <span class="meta-val" id="statsPeakDisW">— Вт</span>
+              </div>
+              <div class="stats-meta-item">
+                <span class="meta-label" data-i18n="statsPeakCurrent">Піковий струм</span>
+                <span class="meta-val" id="statsPeakDisA">— А</span>
+              </div>
+              <div class="stats-meta-item">
+                <span class="meta-label" data-i18n="statsAvgPower">Середня потужність</span>
+                <span class="meta-val" id="statsAvgDisW">— Вт</span>
+              </div>
+              <div class="stats-meta-item">
+                <span class="meta-label" data-i18n="statsDuration">Тривалість розряду</span>
+                <span class="meta-val" id="statsDisDuration">—</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Charged Card -->
+          <div class="card card-stats-hero card-charge">
+            <div class="card-header">
+              <span class="card-label" data-i18n="statsChargeTitle">Енергія заряду АКБ</span>
+              <span class="card-badge badge-green" id="statsChargeBadge">Заряд</span>
+            </div>
+            <div class="stats-hero-val val-green" id="statsChargeVal">— Вт·год</div>
+            <div class="stats-sub-val" id="statsChargeAhVal">⚡ — А·год</div>
+            <div class="stats-meta-grid">
+              <div class="stats-meta-item">
+                <span class="meta-label" data-i18n="statsPeakPower">Пікова потужність</span>
+                <span class="meta-val" id="statsPeakChgW">— Вт</span>
+              </div>
+              <div class="stats-meta-item">
+                <span class="meta-label" data-i18n="statsPeakCurrent">Піковий струм</span>
+                <span class="meta-val" id="statsPeakChgA">— А</span>
+              </div>
+              <div class="stats-meta-item">
+                <span class="meta-label" data-i18n="statsAvgPower">Середня потужність</span>
+                <span class="meta-val" id="statsAvgChgW">— Вт</span>
+              </div>
+              <div class="stats-meta-item">
+                <span class="meta-label" data-i18n="statsDuration">Тривалість заряду</span>
+                <span class="meta-val" id="statsChgDuration">—</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Balance & Efficiency Card -->
+          <div class="card">
+            <div class="card-header">
+              <span class="card-label" data-i18n="statsBalanceTitle">Баланс та ефективність АКБ</span>
+              <span class="card-badge badge-blue" id="statsBalanceBadge">Ефективність</span>
+            </div>
+            <div class="card-value" id="statsNetVal" style="font-size: 1.35rem;">— Вт·год</div>
+            <div class="stats-sub-val" id="statsNetAhVal">⚡ — А·год</div>
+            <div class="card-sub" id="statsEffDetails" style="margin-top: 10px;">ККД Wh: — % · ККД Ah: — %</div>
+            <div class="card-sub" id="statsSocDeltaDetails" style="margin-top: 4px;">Зміна заряду: — %</div>
+          </div>
+
+          <!-- Energy Flow Overview -->
+          <div class="card">
+            <div class="card-header">
+              <span class="card-label" data-i18n="statsFlowTitle">Споживання та джерела за період</span>
+            </div>
+            <div class="card-value" id="statsLoadKwhVal" style="font-size: 1.35rem;">Будинок: — кВт·год</div>
+            <div class="card-sub" id="statsGridPvDetails" style="margin-top: 10px;">Мережа: — кВт·год · Сонце: — кВт·год</div>
+            <div class="card-sub" id="statsPointsDetails" style="margin-top: 4px;">Точок вимірювання: —</div>
+          </div>
+        </div>
+
+        <!-- Hourly Distribution Chart with Wh / Ah Toggle -->
+        <section class="card chart-full">
+          <div class="card-header">
+            <div class="card-label" data-i18n="statsHourlyTitle">Погодинний розподіл енергії АКБ</div>
+            <div class="stats-unit-toggle">
+              <button class="stats-unit-btn active" id="statsUnitWhBtn" data-unit="wh">Вт·год (Wh)</button>
+              <button class="stats-unit-btn" id="statsUnitAhBtn" data-unit="ah">А·год (Ah)</button>
+            </div>
+          </div>
+          <div class="chart-box-main">
+            <canvas id="statsHourlyChart"></canvas>
+          </div>
+        </section>
+      </section>
+
+      <!-- TAB 3: ADVANCED (Detailed Analytics, Solar, Thermals, Raw Table) -->
       <section id="tabAdvanced" class="tab-pane">
+        <!-- Date Selector Toolbar in Advanced Tab -->
+        <div class="history-toolbar" style="margin-bottom: 12px;">
+          <div class="history-title-wrap">
+            <span class="history-icon">📅</span>
+            <span class="history-title" data-i18n="advDateTitle">Дата аналітики:</span>
+          </div>
+
+          <div class="date-selector">
+            <button class="date-nav-btn prev-day-btn" data-i18n-title="prevDay" title="Попередній день">◀</button>
+            <label class="date-display-wrap" for="datePickerAdv" data-i18n-title="openCalendar" title="Натисни, щоб відкрити календар">
+              <span class="date-display-icon">📅</span>
+              <span class="date-display-text date-display-text-adv">Сьогодні</span>
+              <span class="date-chevron">▾</span>
+              <input type="date" id="datePickerAdv" class="date-input-overlay date-picker-input" />
+            </label>
+            <button class="date-nav-btn next-day-btn" data-i18n-title="nextDay" title="Наступний день">▶</button>
+            <button class="date-today-btn is-today today-btn" data-i18n="today">Сьогодні</button>
+          </div>
+        </div>
         <!-- Advanced KPI Grid -->
         <div class="grid-kpi">
           <div class="card">

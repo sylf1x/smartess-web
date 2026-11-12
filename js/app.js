@@ -34,6 +34,7 @@ const rangeButtons = document.getElementById("rangeButtons");
 const tabButtons = document.querySelectorAll(".tab-btn");
 const tabPanes = {
   tabMain: document.getElementById("tabMain"),
+  tabStats: document.getElementById("tabStats"),
   tabAdvanced: document.getElementById("tabAdvanced"),
 };
 
@@ -165,31 +166,47 @@ function formatDateDisplay(dateStr) {
 
 function updateDateControls(dateStr) {
   const todayStr = new Date().toLocaleDateString("en-CA");
-  if (dateDisplayText) {
-    dateDisplayText.textContent = formatDateDisplay(dateStr);
-  }
+  const formatted = formatDateDisplay(dateStr);
+
+  document.querySelectorAll(".date-display-text, #dateDisplayText, .date-display-text-stats, .date-display-text-adv").forEach((el) => {
+    el.textContent = formatted;
+  });
   if (infographicDateLabel) {
-    infographicDateLabel.textContent = formatDateDisplay(dateStr);
+    infographicDateLabel.textContent = formatted;
   }
-  if (todayBtn) {
-    todayBtn.classList.toggle("is-today", dateStr === todayStr);
-  }
-  if (nextDayBtn) {
-    nextDayBtn.disabled = dateStr >= todayStr;
-  }
+  document.querySelectorAll(".date-picker-input, #datePicker, #datePickerStats, #datePickerAdv").forEach((inp) => {
+    inp.value = dateStr;
+    inp.max = todayStr;
+  });
+  document.querySelectorAll(".today-btn, #todayBtn").forEach((btn) => {
+    btn.classList.toggle("is-today", dateStr === todayStr);
+  });
+  document.querySelectorAll(".next-day-btn, #nextDayBtn").forEach((btn) => {
+    btn.disabled = dateStr >= todayStr;
+  });
+}
+
+function setDate(dateStr) {
+  const todayStr = new Date().toLocaleDateString("en-CA");
+  if (dateStr > todayStr) dateStr = todayStr;
+  document.querySelectorAll(".date-picker-input, #datePicker, #datePickerStats, #datePickerAdv").forEach((inp) => {
+    inp.value = dateStr;
+    inp.max = todayStr;
+  });
+  updateDateControls(dateStr);
+  loadDashboard();
 }
 
 function stepDate(days) {
+  const currentVal = datePicker ? datePicker.value : new Date().toLocaleDateString("en-CA");
   const cur = new Date(
-    (datePicker.value || new Date().toLocaleDateString("en-CA")) + "T00:00:00",
+    (currentVal || new Date().toLocaleDateString("en-CA")) + "T00:00:00",
   );
   cur.setDate(cur.getDate() + days);
   const nextStr = cur.toLocaleDateString("en-CA");
   const todayStr = new Date().toLocaleDateString("en-CA");
   if (nextStr > todayStr) return;
-  datePicker.value = nextStr;
-  updateDateControls(nextStr);
-  loadDashboard();
+  setDate(nextStr);
 }
 
 /**
@@ -569,7 +586,299 @@ function applyRangeAndRender() {
   }
   SmartESS.Charts.renderAllCharts(filtered);
   renderGridInfographic(fullChronoRecords);
+  renderStatsTab(
+    fullChronoRecords,
+    datePicker ? datePicker.value : new Date().toLocaleDateString("en-CA"),
+  );
   renderRawTable([...filtered].reverse());
+}
+
+let statsRange = "all";
+let statsTimeFrom = "00:00";
+let statsTimeTo = "23:59";
+let currentStatsUnit = "wh";
+
+function calculateBatteryStats(records, timeFrom = "00:00", timeTo = "23:59") {
+  if (!records || records.length === 0) return null;
+
+  const filtered = records.filter((r) => {
+    const time = r.timestamp.slice(11, 16);
+    return time >= timeFrom && time <= timeTo;
+  });
+
+  if (filtered.length === 0) {
+    return {
+      count: 0,
+      disWh: 0, disAh: 0, peakDisW: 0, peakDisA: 0, avgDisW: 0, avgDisA: 0, disMinutes: 0, avgDisV: 0,
+      chgWh: 0, chgAh: 0, peakChgW: 0, peakChgA: 0, avgChgW: 0, avgChgA: 0, chgMinutes: 0, avgChgV: 0,
+      netWh: 0, netAh: 0, whEfficiency: 0, ahEfficiency: 0,
+      socStart: 0, socEnd: 0, socDelta: 0,
+      loadKwh: "0.00", pvKwh: "0.00", gridKwh: "0.00",
+    };
+  }
+
+  let disWh = 0, disAh = 0, peakDisW = 0, peakDisA = 0, disMinutes = 0;
+  let chgWh = 0, chgAh = 0, peakChgW = 0, peakChgA = 0, chgMinutes = 0;
+  let loadWh = 0, pvWh = 0, gridWh = 0;
+
+  const dt = 5 / 60; // 5 min interval in hours
+
+  for (const r of filtered) {
+    const v = Number(r.batVolt || 0);
+    const a = Number(r.batCurr || 0);
+    const l = Math.max(0, Number(r.loadActive || 0));
+    const pv = Math.max(0, Number(r.pvPower || 0));
+    const gv = Number(r.gridVolt || 0);
+    const ga = Number(r.gridCurr || 0);
+
+    loadWh += l * dt;
+    pvWh += pv * dt;
+    if (gv >= 50) {
+      gridWh += (gv * ga) * dt;
+    }
+
+    if (a < 0) {
+      const curA = Math.abs(a);
+      const curW = v * curA;
+      disWh += curW * dt;
+      disAh += curA * dt;
+      disMinutes += 5;
+      if (curW > peakDisW) peakDisW = curW;
+      if (curA > peakDisA) peakDisA = curA;
+    } else if (a > 0) {
+      const curA = a;
+      const curW = v * curA;
+      chgWh += curW * dt;
+      chgAh += curA * dt;
+      chgMinutes += 5;
+      if (curW > peakChgW) peakChgW = curW;
+      if (curA > peakChgA) peakChgA = curA;
+    }
+  }
+
+  const disHours = disMinutes / 60;
+  const chgHours = chgMinutes / 60;
+
+  const avgDisW = disHours > 0 ? Math.round(disWh / disHours) : 0;
+  const avgDisA = disHours > 0 ? (disAh / disHours).toFixed(1) : "0.0";
+  const avgDisV = disAh > 0 ? (disWh / disAh).toFixed(1) : "0.0";
+
+  const avgChgW = chgHours > 0 ? Math.round(chgWh / chgHours) : 0;
+  const avgChgA = chgHours > 0 ? (chgAh / chgHours).toFixed(1) : "0.0";
+  const avgChgV = chgAh > 0 ? (chgWh / chgAh).toFixed(1) : "0.0";
+
+  const netWh = Math.round(chgWh - disWh);
+  const netAh = (chgAh - disAh).toFixed(1);
+
+  const whEfficiency = chgWh > 0 ? Math.min(100, Math.round((disWh / chgWh) * 100)) : 0;
+  const ahEfficiency = chgAh > 0 ? Math.min(100, Math.round((disAh / chgAh) * 100)) : 0;
+
+  const socStart = Number(filtered[0]?.batSoc ?? 0);
+  const socEnd = Number(filtered[filtered.length - 1]?.batSoc ?? 0);
+  const socDelta = socEnd - socStart;
+
+  return {
+    count: filtered.length,
+    disWh: Math.round(disWh),
+    disAh: Number(disAh.toFixed(1)),
+    peakDisW: Math.round(peakDisW),
+    peakDisA: Number(peakDisA.toFixed(1)),
+    avgDisW,
+    avgDisA,
+    avgDisV,
+    disMinutes,
+    chgWh: Math.round(chgWh),
+    chgAh: Number(chgAh.toFixed(1)),
+    peakChgW: Math.round(peakChgW),
+    peakChgA: Number(peakChgA.toFixed(1)),
+    avgChgW,
+    avgChgA,
+    avgChgV,
+    chgMinutes,
+    netWh,
+    netAh,
+    whEfficiency,
+    ahEfficiency,
+    socStart,
+    socEnd,
+    socDelta,
+    loadKwh: (loadWh / 1000).toFixed(2),
+    pvKwh: (pvWh / 1000).toFixed(2),
+    gridKwh: (gridWh / 1000).toFixed(2),
+  };
+}
+
+function renderStatsTab(records, selectedDate) {
+  if (!records || records.length === 0) return;
+
+  // 1. Detect outages from records to populate Outage Preset Chips
+  const outages = [];
+  let curOutage = null;
+  for (const r of records) {
+    const v = Number(r.gridVolt || 0);
+    const time = r.timestamp.slice(11, 16);
+    if (v < 50) {
+      if (!curOutage) {
+        curOutage = { startTime: time, endTime: time, count: 1 };
+      } else {
+        curOutage.endTime = time;
+        curOutage.count++;
+      }
+    } else {
+      if (curOutage) {
+        outages.push(curOutage);
+        curOutage = null;
+      }
+    }
+  }
+  if (curOutage) outages.push(curOutage);
+
+  const outageRow = document.getElementById("statsOutagesRow");
+  const outageChips = document.getElementById("statsOutageChips");
+  if (outageRow && outageChips) {
+    if (outages.length > 0) {
+      outageRow.style.display = "flex";
+      outageChips.innerHTML = outages
+        .map((out, idx) => {
+          const durationMin = out.count * 5;
+          const h = Math.floor(durationMin / 60);
+          const m = durationMin % 60;
+          const durStr =
+            h > 0
+              ? `${h} ${t("unitHours")} ${m} ${t("unitMin")}`
+              : `${m} ${t("unitMin")}`;
+          return `
+            <button class="stats-outage-chip" data-start="${out.startTime}" data-end="${out.endTime}">
+              🔴 #${idx + 1}: ${out.startTime}–${out.endTime} (${durStr})
+            </button>
+          `;
+        })
+        .join("");
+
+      outageChips.querySelectorAll(".stats-outage-chip").forEach((chip) => {
+        chip.onclick = () => {
+          statsRange = "outage";
+          statsTimeFrom = chip.dataset.start;
+          statsTimeTo = chip.dataset.end;
+          document
+            .querySelectorAll(".stats-outage-chip")
+            .forEach((c) => c.classList.remove("active"));
+          chip.classList.add("active");
+          document
+            .querySelectorAll("#statsPresetButtons .range-btn")
+            .forEach((b) => b.classList.remove("active"));
+          const fromInput = document.getElementById("statsTimeFrom");
+          const toInput = document.getElementById("statsTimeTo");
+          if (fromInput) fromInput.value = statsTimeFrom;
+          if (toInput) toInput.value = statsTimeTo;
+          renderStatsTab(records, selectedDate);
+        };
+      });
+    } else {
+      outageRow.style.display = "none";
+      outageChips.innerHTML = "";
+    }
+  }
+
+  // 2. Compute statistics for current statsTimeFrom -> statsTimeTo
+  const stats = calculateBatteryStats(records, statsTimeFrom, statsTimeTo);
+  if (!stats) return;
+
+  const formatDur = (mins) => {
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    return h > 0
+      ? `${h} ${t("unitHours")} ${m} ${t("unitMin")}`
+      : `${m} ${t("unitMin")}`;
+  };
+
+  // Populate Discharged Card
+  const disValEl = document.getElementById("statsDischargeVal");
+  if (disValEl) {
+    const kwhStr = (stats.disWh / 1000).toFixed(2);
+    disValEl.textContent = `${stats.disWh.toLocaleString()} ${t("unitWh")} (${kwhStr} ${t("unitKwh")})`;
+  }
+  const disAhEl = document.getElementById("statsDischargeAhVal");
+  if (disAhEl) {
+    disAhEl.textContent = `⚡ ${stats.disAh} ${t("unitAh")} (@ avg ${stats.avgDisV} ${t("unitV")})`;
+  }
+  const peakDisWEl = document.getElementById("statsPeakDisW");
+  if (peakDisWEl) peakDisWEl.textContent = `${stats.peakDisW.toLocaleString()} ${t("unitW")}`;
+  const peakDisAEl = document.getElementById("statsPeakDisA");
+  if (peakDisAEl) peakDisAEl.textContent = `${stats.peakDisA} ${t("unitA")}`;
+  const avgDisWEl = document.getElementById("statsAvgDisW");
+  if (avgDisWEl)
+    avgDisWEl.textContent = `${stats.avgDisW} ${t("unitW")} (${stats.avgDisA} ${t("unitA")})`;
+  const disDurEl = document.getElementById("statsDisDuration");
+  if (disDurEl) disDurEl.textContent = formatDur(stats.disMinutes);
+
+  // Populate Charged Card
+  const chgValEl = document.getElementById("statsChargeVal");
+  if (chgValEl) {
+    const kwhStr = (stats.chgWh / 1000).toFixed(2);
+    chgValEl.textContent = `${stats.chgWh.toLocaleString()} ${t("unitWh")} (${kwhStr} ${t("unitKwh")})`;
+  }
+  const chgAhEl = document.getElementById("statsChargeAhVal");
+  if (chgAhEl) {
+    chgAhEl.textContent = `⚡ ${stats.chgAh} ${t("unitAh")} (@ avg ${stats.avgChgV} ${t("unitV")})`;
+  }
+  const peakChgWEl = document.getElementById("statsPeakChgW");
+  if (peakChgWEl) peakChgWEl.textContent = `${stats.peakChgW.toLocaleString()} ${t("unitW")}`;
+  const peakChgAEl = document.getElementById("statsPeakChgA");
+  if (peakChgAEl) peakChgAEl.textContent = `${stats.peakChgA} ${t("unitA")}`;
+  const avgChgWEl = document.getElementById("statsAvgChgW");
+  if (avgChgWEl)
+    avgChgWEl.textContent = `${stats.avgChgW} ${t("unitW")} (${stats.avgChgA} ${t("unitA")})`;
+  const chgDurEl = document.getElementById("statsChgDuration");
+  if (chgDurEl) chgDurEl.textContent = formatDur(stats.chgMinutes);
+
+  // Balance & Efficiency
+  const netValEl = document.getElementById("statsNetVal");
+  if (netValEl) {
+    const sign = stats.netWh >= 0 ? "+" : "";
+    netValEl.textContent = `${sign}${stats.netWh.toLocaleString()} ${t("unitWh")}`;
+    netValEl.className =
+      stats.netWh >= 0 ? "card-value val-green" : "card-value val-amber";
+  }
+  const netAhEl = document.getElementById("statsNetAhVal");
+  if (netAhEl) {
+    const sign = stats.netAh >= 0 ? "+" : "";
+    netAhEl.textContent = `⚡ ${sign}${stats.netAh} ${t("unitAh")}`;
+  }
+  const effEl = document.getElementById("statsEffDetails");
+  if (effEl) {
+    effEl.textContent = `${t("statsWhEfficiency")}: ${stats.whEfficiency}% · ${t("statsAhEfficiency")}: ${stats.ahEfficiency}%`;
+  }
+  const socDeltaEl = document.getElementById("statsSocDeltaDetails");
+  if (socDeltaEl) {
+    const sign = stats.socDelta >= 0 ? "+" : "";
+    socDeltaEl.textContent = `${t("statsSocChange")}: ${stats.socStart}% ➔ ${stats.socEnd}% (${sign}${stats.socDelta}%)`;
+  }
+
+  // Energy Flow
+  const loadKwhEl = document.getElementById("statsLoadKwhVal");
+  if (loadKwhEl) {
+    loadKwhEl.textContent = `${t("loadTitle")}: ${stats.loadKwh} ${t("unitKwh")}`;
+  }
+  const flowDetailsEl = document.getElementById("statsGridPvDetails");
+  if (flowDetailsEl) {
+    flowDetailsEl.textContent = `${t("gridTitle")}: ${stats.gridKwh} ${t("unitKwh")} · PV: ${stats.pvKwh} ${t("unitKwh")}`;
+  }
+  const pointsEl = document.getElementById("statsPointsDetails");
+  if (pointsEl) {
+    pointsEl.textContent = t("statsRecordsCount", { n: stats.count });
+  }
+
+  // Interval Badge
+  const intervalBadge = document.getElementById("statsIntervalBadge");
+  if (intervalBadge) {
+    intervalBadge.textContent = `${statsTimeFrom} – ${statsTimeTo}`;
+  }
+
+  // Update Hourly Bar Chart
+  if (window.SmartESS?.Charts?.renderHourlyStatsChart) {
+    window.SmartESS.Charts.renderHourlyStatsChart(records, currentStatsUnit);
+  }
 }
 
 async function loadDashboard() {
@@ -767,43 +1076,130 @@ if (deviceSelect) {
   };
 }
 
-function openCalendar() {
-  if (!datePicker) return;
-  if (typeof datePicker.showPicker === "function") {
+function openCalendar(targetInput) {
+  const inp = targetInput || datePicker;
+  if (!inp) return;
+  if (typeof inp.showPicker === "function") {
     try {
-      datePicker.showPicker();
+      inp.showPicker();
       return;
     } catch (err) {}
   }
   try {
-    datePicker.focus();
+    inp.focus();
   } catch (err) {}
 }
 
-if (dateDisplayWrap) {
-  dateDisplayWrap.addEventListener("click", (e) => {
+document.querySelectorAll(".date-display-wrap").forEach((wrap) => {
+  wrap.addEventListener("click", (e) => {
+    const inp = wrap.querySelector(".date-picker-input") || datePicker;
     // If the click directly hit the datePicker overlay, let the native browser picker open
-    if (e.target === datePicker) return;
-    openCalendar();
+    if (e.target === inp) return;
+    openCalendar(inp);
   });
-}
+});
 
-if (datePicker) {
-  datePicker.onchange = () => {
-    updateDateControls(datePicker.value);
-    loadDashboard();
+document.querySelectorAll(".date-picker-input").forEach((inp) => {
+  inp.onchange = () => {
+    setDate(inp.value);
+  };
+});
+
+document.querySelectorAll(".prev-day-btn").forEach((btn) => {
+  btn.onclick = () => stepDate(-1);
+});
+
+document.querySelectorAll(".next-day-btn").forEach((btn) => {
+  btn.onclick = () => stepDate(1);
+});
+
+document.querySelectorAll(".today-btn").forEach((btn) => {
+  btn.onclick = () => {
+    const todayStr = new Date().toLocaleDateString("en-CA");
+    setDate(todayStr);
+  };
+});
+
+// Statistics Tab Controls
+const statsPresetButtons = document.getElementById("statsPresetButtons");
+if (statsPresetButtons) {
+  statsPresetButtons.onclick = (e) => {
+    const btn = e.target.closest(".range-btn");
+    if (!btn) return;
+    document
+      .querySelectorAll("#statsPresetButtons .range-btn")
+      .forEach((b) => b.classList.remove("active"));
+    document
+      .querySelectorAll(".stats-outage-chip")
+      .forEach((c) => c.classList.remove("active"));
+    btn.classList.add("active");
+    const range = btn.dataset.statsRange;
+    statsRange = range;
+    if (range === "all") {
+      statsTimeFrom = "00:00";
+      statsTimeTo = "23:59";
+    } else if (range === "00-06") {
+      statsTimeFrom = "00:00";
+      statsTimeTo = "05:59";
+    } else if (range === "06-12") {
+      statsTimeFrom = "06:00";
+      statsTimeTo = "11:59";
+    } else if (range === "12-18") {
+      statsTimeFrom = "12:00";
+      statsTimeTo = "17:59";
+    } else if (range === "18-24") {
+      statsTimeFrom = "18:00";
+      statsTimeTo = "23:59";
+    }
+    const fromInput = document.getElementById("statsTimeFrom");
+    const toInput = document.getElementById("statsTimeTo");
+    if (fromInput) fromInput.value = statsTimeFrom;
+    if (toInput) toInput.value = statsTimeTo;
+    renderStatsTab(
+      fullChronoRecords,
+      datePicker ? datePicker.value : new Date().toLocaleDateString("en-CA"),
+    );
   };
 }
 
-if (prevDayBtn) prevDayBtn.onclick = () => stepDate(-1);
-if (nextDayBtn) nextDayBtn.onclick = () => stepDate(1);
-if (todayBtn) {
-  todayBtn.onclick = () => {
-    const todayStr = new Date().toLocaleDateString("en-CA");
-    if (datePicker.value !== todayStr) {
-      datePicker.value = todayStr;
-      updateDateControls(todayStr);
-      loadDashboard();
+const statsApplyTimeBtn = document.getElementById("statsApplyTimeBtn");
+if (statsApplyTimeBtn) {
+  statsApplyTimeBtn.onclick = () => {
+    const fromInput = document.getElementById("statsTimeFrom");
+    const toInput = document.getElementById("statsTimeTo");
+    if (fromInput && fromInput.value) statsTimeFrom = fromInput.value;
+    if (toInput && toInput.value) statsTimeTo = toInput.value;
+    statsRange = "custom";
+    document
+      .querySelectorAll("#statsPresetButtons .range-btn")
+      .forEach((b) => b.classList.remove("active"));
+    document
+      .querySelectorAll(".stats-outage-chip")
+      .forEach((c) => c.classList.remove("active"));
+    renderStatsTab(
+      fullChronoRecords,
+      datePicker ? datePicker.value : new Date().toLocaleDateString("en-CA"),
+    );
+  };
+}
+
+const unitWhBtn = document.getElementById("statsUnitWhBtn");
+const unitAhBtn = document.getElementById("statsUnitAhBtn");
+if (unitWhBtn && unitAhBtn) {
+  unitWhBtn.onclick = () => {
+    currentStatsUnit = "wh";
+    unitWhBtn.classList.add("active");
+    unitAhBtn.classList.remove("active");
+    if (window.SmartESS?.Charts?.renderHourlyStatsChart) {
+      window.SmartESS.Charts.renderHourlyStatsChart(fullChronoRecords, "wh");
+    }
+  };
+  unitAhBtn.onclick = () => {
+    currentStatsUnit = "ah";
+    unitAhBtn.classList.add("active");
+    unitWhBtn.classList.remove("active");
+    if (window.SmartESS?.Charts?.renderHourlyStatsChart) {
+      window.SmartESS.Charts.renderHourlyStatsChart(fullChronoRecords, "ah");
     }
   };
 }

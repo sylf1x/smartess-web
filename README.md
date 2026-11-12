@@ -41,34 +41,43 @@ This is a **personal project** created to provide a significantly faster, cleane
 ### 3. 👆 Touch & Mouse Scrubbing (No Cluttering Tooltips)
 - **Zero Tooltip Overlap:** Obtrusive floating tooltips that cover graph lines and get obscured by fingers are completely disabled across all charts.
 - **Hardware-Accelerated Crosshair:** Smooth vertical line tracker (`.chart-scrubber-line`) that follows cursor or finger gestures.
+- **Positive-Only House Load & Battery Power Graph:** Battery power on the main history chart is restricted strictly to positive numbers (`min: 0`), dynamically styling charging in green and discharging in amber, eliminating redundant negative scales.
 - **Dedicated Information Panels:** Readout bars located directly beneath each graph update in real-time with tabular precision:
   - **Grid & Battery Chart:** Time · Mains Voltage (V) · Battery SoC (%) · Frequency (Hz) · Equipment Mode.
-  - **House Load & Battery Power Chart:** Time · House Load (W) · Battery Power (+/- W) · Equipment Mode.
+  - **House Load & Battery Power Chart:** Time · House Load (W) · Battery Power (W) · Equipment Mode.
   - **Full Power Balance Chart (Advanced Tab):** Time · Solar PV (W) · Apparent Load (VA) · Active Load (W) · Battery Power (W) · Equipment Mode.
   - **Thermal Profile Chart (Advanced Tab):** Time · Inverter Radiator Temp (°C) · Heat Sink B Temp (°C) · MPPT / PV Radiator Temp (°C).
-- **Mobile-Optimized Geometry:** Crowded vertical Y-axis labels are hidden on mobile screens ($\le 768\text{px}$) so graph lines extend edge-to-edge, perfectly aligning with the 24h timeline ribbon.
+- **Mobile-Optimized Geometry:** Crowded vertical Y-axis labels (Volts, SoC %, Hz, and Watts) are hidden on mobile screens ($\le 768\text{px}$) so graph lines extend edge-to-edge across the screen.
 
-### 4. 📅 Intuitive Daily History Navigation
-- **Dedicated History Toolbar:** Positioned directly above the historical charts, separating real-time metrics from daily logs:
+### 4. 🔋 Battery Energy & Performance Statistics Tab
+- **Wh & Ah Integration:** Numerical integration over 5-minute telemetry intervals calculates total energy discharged and charged in Watt-hours (`Wh` / `kWh`) as well as capacity in Ampere-hours (`Ah`).
+- **Peak & Average Metrics:** Peak power (`W`), peak current (`A`), average power, average current, average discharge/charge voltage (`V`), and duration.
+- **Cycle Efficiency & Balance:** Net energy balance, cycle energy efficiency (% Wh), coulombic efficiency (% Ah), and SoC change ($\Delta\text{SoC}$).
+- **Outage Preset Chips:** Automatically detects power cuts for the day and creates instant one-tap buttons (e.g. `🔴 #1: 10:15–14:20 (4h 05m)`) to isolate battery consumption for specific outages.
+- **Custom Time Filtering:** Select any custom time window (`From` / `To`) with instant recalculation.
+- **Hourly Energy Distribution Chart:** Visual bar chart showing hourly energy distribution with an interactive `[ Wh ]` / `[ Ah ]` toggle.
+
+### 5. 📅 Intuitive Daily History Navigation
+- **Synchronized History Toolbars:** Date selector components across the Main, Statistics, and Advanced tabs stay in sync:
   ```
   📅 Історія за день:    ◀ [ 📅 Сьогодні ▾ ] ▶  [ Сьогодні ]
   ```
 - **Quick Stepping:** One-click previous (`◀`) and next (`▶`) day navigation.
-- **Native Calendar Picker:** Seamless calendar modal overlay for jumping directly to any historical date.
+- **Native Calendar Picker:** Seamless calendar modal overlay for jumping directly to any historical date on desktop and mobile (iOS & Android).
 
-### 5. 🌍 Trilingual Localization (i18n) & Localized Engineering Units
+### 6. 🌍 Trilingual Localization (i18n) & Localized Engineering Units
 - Instant on-the-fly language switching between **Ukrainian (UA, default)**, **Russian (RU)**, and **English (EN)** without page reloads.
 - Standardized engineering units adapted to each locale:
-  - English: `V`, `W`, `VA`, `Hz`, `kWh`, `Wh`, `A`, `°C`, `h`, `m`.
-  - Ukrainian: `В`, `Вт`, `ВА`, `Гц`, `кВт·год`, `Вт·год`, `А`, `°C`, `год`, `хв`.
-  - Russian: `В`, `Вт`, `ВА`, `Гц`, `кВт·ч`, `Вт·ч`, `А`, `°C`, `ч`, `мин`.
+  - English: `V`, `W`, `VA`, `Hz`, `kWh`, `Wh`, `Ah`, `A`, `°C`, `h`, `m`.
+  - Ukrainian: `В`, `Вт`, `ВА`, `Гц`, `кВт·год`, `Вт·год`, `А·год`, `А`, `°C`, `год`, `хв`.
+  - Russian: `В`, `Вт`, `ВА`, `Гц`, `кВт·ч`, `Вт·ч`, `А·ч`, `А`, `°C`, `ч`, `мин`.
 
-### 6. 📱 Mobile-First Ergonomics & PWA
-- **Native Bottom Navigation Bar:** Ergonomically placed within natural thumb reach, respecting `env(safe-area-inset-bottom)`.
+### 7. 📱 Mobile-First Ergonomics & PWA
+- **Native Bottom Navigation Bar:** Ergonomically placed within natural thumb reach with 3 tabs (`★ Overview`, `📊 Statistics`, `⚙️ Advanced`), respecting `env(safe-area-inset-bottom)`.
 - **Notch & Dynamic Island Ready:** Header spacing automatically accounts for modern phone cutouts via `env(safe-area-inset-top)`.
 - **Installable Web App:** Complete with `manifest.json`, Service Worker caching (`sw.js`), standalone window mode, and crisp vector (`.svg`) and raster (`.png`) icons for iOS Safari and Android Chrome home screen installation.
 
-### 7. 🔒 Zero-Backend Security & Privacy
+### 8. 🔒 Zero-Backend Security & Privacy
 - **Direct Cloud Communication:** Calls the Eybond API directly from your browser via reverse-engineered SHA-1 request signatures.
 - **No Intermediate Servers:** Telemetry data flows directly between your device and the inverter cloud.
 - **Local Credentials:** User login and discovered device IDs are stored exclusively in your browser's private `localStorage`. Zero telemetry, zero analytics, zero external logging.

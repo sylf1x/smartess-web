@@ -196,11 +196,11 @@
       const maxDis = Math.abs(Math.min(0, ...batPower));
       let batStatText = "";
       if (maxChg > 0 && maxDis > 0) {
-        batStatText = `${t("charge")}: +${maxChg} ${t("unitW")} · ${t("discharge")}: -${maxDis} ${t("unitW")}`;
+        batStatText = `${t("charge")}: +${maxChg} ${t("unitW")} · ${t("discharge")}: ${maxDis} ${t("unitW")}`;
       } else if (maxChg > 0) {
         batStatText = `${t("peakCharge")}: +${maxChg} ${t("unitW")}`;
       } else if (maxDis > 0) {
-        batStatText = `${t("peakDischarge")}: -${maxDis} ${t("unitW")}`;
+        batStatText = `${t("peakDischarge")}: ${maxDis} ${t("unitW")}`;
       }
       loadBatStatsEl.textContent = `${t("peakLoad")}: ${maxVal(loadActive)} ${t("unitW")}${batStatText ? " · " + batStatText : ""}`;
     }
@@ -420,8 +420,14 @@
             },
             {
               label: t("chartBat"),
-              data: batPower,
+              data: batPower.map((v) => Math.abs(v)),
               borderColor: "#22c55e",
+              segment: {
+                borderColor: (ctx) => {
+                  const rawVal = batPower[ctx.p0DataIndex];
+                  return rawVal < 0 ? "#f59e0b" : "#22c55e";
+                },
+              },
               tension: 0.25,
               pointRadius: 0,
               borderWidth: 1.8,
@@ -433,7 +439,12 @@
           scales: {
             ...baseOptions.scales,
             y: {
-              ticks: { color: "#8c95b8" },
+              min: 0,
+              ticks: {
+                display: !isMobile,
+                color: "#8c95b8",
+                callback: (v) => v + " " + t("unitW"),
+              },
               grid: { color: "rgba(255,255,255,0.05)" },
             },
           },
@@ -459,12 +470,13 @@
         }
         if (loadBatBatEl) {
           const bp = Math.round(Number(rec.batVolt || 0) * Number(rec.batCurr || 0));
+          const bpAbs = Math.abs(bp);
           if (bp > 0) {
-            loadBatBatEl.textContent = `🔋 +${bp} ${t("unitW")} (${t("charge")})`;
+            loadBatBatEl.textContent = `🔋 +${bpAbs} ${t("unitW")} (${t("charge")})`;
             loadBatBatEl.className = "val-green";
           } else if (bp < 0) {
-            loadBatBatEl.textContent = `🔋 ${bp} ${t("unitW")} (${t("discharge")})`;
-            loadBatBatEl.className = Math.abs(bp) > 2000 ? "val-red" : "val-amber";
+            loadBatBatEl.textContent = `🔋 ${bpAbs} ${t("unitW")} (${t("discharge")})`;
+            loadBatBatEl.className = bpAbs > 2000 ? "val-red" : "val-amber";
           } else {
             loadBatBatEl.textContent = `🔋 0 ${t("unitW")} (${t("buffer")})`;
             loadBatBatEl.className = "val-blue";
@@ -692,12 +704,157 @@
         onScrub: updateTempReadout,
       });
     }
+
+    // 5. Hourly Battery Energy Distribution Chart (Statistics Tab)
+    renderHourlyStatsChart(records, currentStatsUnit);
+  }
+
+  let statsHourlyChartInstance = null;
+  let currentStatsUnit = "wh";
+
+  function setStatsUnit(unit) {
+    currentStatsUnit = unit;
+  }
+
+  function renderHourlyStatsChart(records, unit = currentStatsUnit) {
+    currentStatsUnit = unit;
+    const canvas = document.getElementById("statsHourlyChart");
+    if (!canvas) return;
+
+    if (statsHourlyChartInstance) {
+      try {
+        statsHourlyChartInstance.destroy();
+      } catch {}
+      statsHourlyChartInstance = null;
+    }
+
+    if (!records || records.length === 0) return;
+
+    const t = window.SmartESS?.I18n?.t || window.t || ((k) => k);
+    const isMobile = typeof window !== "undefined" && window.innerWidth <= 768;
+
+    // Hourly aggregation for 24 hours (00 to 23)
+    const hours = Array.from({ length: 24 }, (_, i) => i);
+    const labels = hours.map((h) => String(h).padStart(2, "0") + ":00");
+    const charged = new Array(24).fill(0);
+    const discharged = new Array(24).fill(0);
+    const load = new Array(24).fill(0);
+
+    const dt = 5 / 60; // 5 min interval in hours
+
+    for (const r of records) {
+      const h = Number(r.timestamp.slice(11, 13));
+      if (h < 0 || h > 23) continue;
+
+      const v = Number(r.batVolt || 0);
+      const a = Number(r.batCurr || 0);
+      const l = Number(r.loadActive || 0);
+
+      load[h] += l * dt;
+
+      if (unit === "ah") {
+        if (a > 0) {
+          charged[h] += a * dt;
+        } else if (a < 0) {
+          discharged[h] += Math.abs(a) * dt;
+        }
+      } else {
+        const p = v * Math.abs(a);
+        if (a > 0) {
+          charged[h] += p * dt;
+        } else if (a < 0) {
+          discharged[h] += p * dt;
+        }
+      }
+    }
+
+    const factor = unit === "ah" ? 10 : 1;
+    const chargedData = charged.map((val) => Math.round(val * factor) / factor);
+    const dischargedData = discharged.map((val) => Math.round(val * factor) / factor);
+    const loadData = load.map((val) => (unit === "ah" ? 0 : Math.round(val)));
+
+    const datasets = [
+      {
+        type: "bar",
+        label: `${t("charge")} (${unit === "ah" ? t("unitAh") : t("unitWh")})`,
+        data: chargedData,
+        backgroundColor: "rgba(34, 197, 94, 0.75)",
+        borderColor: "#22c55e",
+        borderWidth: 1,
+        borderRadius: 4,
+      },
+      {
+        type: "bar",
+        label: `${t("discharge")} (${unit === "ah" ? t("unitAh") : t("unitWh")})`,
+        data: dischargedData,
+        backgroundColor: "rgba(245, 158, 11, 0.75)",
+        borderColor: "#f59e0b",
+        borderWidth: 1,
+        borderRadius: 4,
+      },
+    ];
+
+    if (unit !== "ah") {
+      datasets.push({
+        type: "line",
+        label: `${t("loadTitle")} (${t("unitWh")})`,
+        data: loadData,
+        borderColor: "#7c5cff",
+        backgroundColor: "rgba(124, 92, 255, 0.1)",
+        borderWidth: 2,
+        tension: 0.25,
+        pointRadius: 0,
+        fill: false,
+      });
+    }
+
+    statsHourlyChartInstance = new Chart(canvas, {
+      data: {
+        labels,
+        datasets,
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: {
+            labels: { color: "#eef0f8", boxWidth: 12, font: { size: 12 } },
+          },
+          tooltip: {
+            enabled: false,
+          },
+        },
+        scales: {
+          x: {
+            ticks: {
+              color: "#8c95b8",
+              maxRotation: 0,
+              callback: (val, idx) => (idx % 2 === 0 ? labels[idx] : ""),
+            },
+            grid: { display: false },
+          },
+          y: {
+            min: 0,
+            ticks: {
+              display: !isMobile,
+              color: "#8c95b8",
+              callback: (v) => v + " " + (unit === "ah" ? t("unitAh") : t("unitWh")),
+            },
+            grid: { color: "rgba(255,255,255,0.05)" },
+          },
+        },
+      },
+    });
+
+    chartInstances.push(statsHourlyChartInstance);
   }
 
   // Global namespace export
   global.SmartESS = global.SmartESS || {};
   global.SmartESS.Charts = {
     renderAllCharts,
+    renderHourlyStatsChart,
+    setStatsUnit,
     resetZoom,
     resizeCharts,
     destroyCharts,

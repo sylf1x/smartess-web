@@ -1281,4 +1281,226 @@ dialog::backdrop {
   .scrub-hint {
     display: none;
   }
+
+  .stats-custom-time-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .stats-interval-badge {
+    margin-left: 0;
+    width: 100%;
+    text-align: center;
+  }
+}
+
+/* ==========================================================================
+   Statistics Tab Components
+   ========================================================================== */
+.stats-filter-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 16px;
+  margin-bottom: 16px;
+  border-radius: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+
+.stats-filter-section {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.stats-filter-label {
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+.stats-filter-sublabel {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #fca5a5;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.stats-outages-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--border);
+}
+
+.stats-outage-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.stats-outage-chip {
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  color: #fca5a5;
+  font-size: 0.76rem;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.stats-outage-chip:hover {
+  background: rgba(239, 68, 68, 0.22);
+  border-color: rgba(239, 68, 68, 0.6);
+  color: #fff;
+}
+
+.stats-outage-chip.active {
+  background: #ef4444;
+  border-color: #ef4444;
+  color: #fff;
+  box-shadow: 0 0 10px rgba(239, 68, 68, 0.35);
+}
+
+.stats-custom-time-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.stats-time-input-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.stats-time-input {
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 8px;
+  font-size: 0.84rem;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.stats-time-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.stats-interval-badge {
+  margin-left: auto;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #38bdf8;
+  background: rgba(56, 189, 248, 0.1);
+  border: 1px solid rgba(56, 189, 248, 0.25);
+  padding: 4px 10px;
+  border-radius: 6px;
+}
+
+.card-stats-hero {
+  position: relative;
+  overflow: hidden;
+}
+
+.card-stats-hero.card-discharge {
+  border-color: rgba(245, 158, 11, 0.3);
+  background: linear-gradient(180deg, rgba(245, 158, 11, 0.05) 0%, var(--surface) 100%);
+}
+
+.card-stats-hero.card-charge {
+  border-color: rgba(34, 197, 94, 0.3);
+  background: linear-gradient(180deg, rgba(34, 197, 94, 0.05) 0%, var(--surface) 100%);
+}
+
+.stats-hero-val {
+  font-size: 1.85rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+  margin: 6px 0 2px 0;
+}
+
+.stats-sub-val {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #38bdf8;
+  margin-bottom: 12px;
+}
+
+.stats-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.stats-meta-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.stats-meta-item .meta-label {
+  font-size: 0.72rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.stats-meta-item .meta-val {
+  font-size: 0.86rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.stats-unit-toggle {
+  display: inline-flex;
+  align-items: center;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 2px;
+  gap: 2px;
+}
+
+.stats-unit-btn {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.stats-unit-btn:hover {
+  color: var(--text);
+}
+
+.stats-unit-btn.active {
+  background: var(--accent);
+  color: #fff;
 }
