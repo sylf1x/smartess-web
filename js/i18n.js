@@ -143,6 +143,12 @@
     nextDay: "Наступний день",
     openCalendar: "Натисни, щоб відкрити календар",
     scrubHint: "Проведи пальцем по графіку",
+    scrubPv: "PV",
+    scrubVa: "ВА",
+    scrubLoad: "Нав.",
+    scrubBat: "АКБ",
+    scrubInv: "Інв.",
+    scrubSinkB: "Рад. B",
 
     // Tooltips
     tooltipBatCharge: "АКБ: +{w} Вт (Зарядка)",
@@ -307,6 +313,12 @@
     nextDay: "Следующий день",
     openCalendar: "Нажми, чтобы открыть календарь",
     scrubHint: "Проведи пальцем по графику",
+    scrubPv: "PV",
+    scrubVa: "ВА",
+    scrubLoad: "Нагр.",
+    scrubBat: "АКБ",
+    scrubInv: "Инв.",
+    scrubSinkB: "Рад. B",
 
     // Tooltips
     tooltipBatCharge: "АКБ: +{w} Вт (Зарядка)",
@@ -471,6 +483,12 @@
     nextDay: "Next Day",
     openCalendar: "Click to open calendar",
     scrubHint: "Slide finger across graph",
+    scrubPv: "PV",
+    scrubVa: "VA",
+    scrubLoad: "Load",
+    scrubBat: "Bat",
+    scrubInv: "Inv",
+    scrubSinkB: "Sink B",
 
     // Tooltips
     tooltipBatCharge: "Battery: +{w} W (Charging)",

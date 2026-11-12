@@ -1,5 +1,5 @@
 /**
- * SmartESS Web - Chart.js Visualizations & Mobile Touch Scrubber
+ * SmartESS Web - Chart.js Visualizations & Touch/Mouse Scrubbers
  */
 (function (global) {
   let chartInstances = [];
@@ -170,11 +170,6 @@
       (window.innerWidth <= 768 || "ontouchstart" in window);
 
     const labels = records.map((r) => r.timestamp.slice(11, 16));
-    const modes = records.map((r) =>
-      window.SmartESS?.I18n?.translateMode
-        ? window.SmartESS.I18n.translateMode(r.mode)
-        : r.mode
-    );
 
     const pvPower = records.map((r) => Number(r.pvPower || 0));
     const loadActive = records.map((r) => Math.max(0, Number(r.loadActive || 0)));
@@ -195,7 +190,6 @@
     const tempPv = records.map((r) => Number(r.tempPv || 0));
 
     const maxVal = (arr) => (arr.length ? Math.max(...arr) : 0);
-    const minVal = (arr) => (arr.length ? Math.min(...arr) : 0);
 
     // Stats updates for cards
     const loadBatStatsEl = document.getElementById("loadBatStats");
@@ -223,6 +217,7 @@
       tempStatsEl.textContent = `${t("maxInv")}: ${maxVal(tempInv)} ${t("unitDeg")} · PV: ${maxVal(tempPv)} ${t("unitDeg")}`;
     }
 
+    // Base Options: Tooltips disabled completely on all devices since readouts are underneath
     const baseOptions = {
       responsive: true,
       maintainAspectRatio: false,
@@ -232,18 +227,7 @@
           labels: { color: "#eef0f8", boxWidth: 12, font: { size: 12 } },
         },
         tooltip: {
-          enabled: !isMobile,
-          backgroundColor: "#141829",
-          borderColor: "#262d4a",
-          borderWidth: 1,
-          titleColor: "#eef0f8",
-          bodyColor: "#cfd5ec",
-          callbacks: {
-            afterTitle: (items) => {
-              const idx = items[0]?.dataIndex ?? 0;
-              return modes[idx] ? `${t("modeCol")}: ${modes[idx]}` : "";
-            },
-          },
+          enabled: false, // Tooltips disabled completely; info is cleanly shown in the scrubber readouts underneath
         },
         zoom: {
           pan: {
@@ -317,31 +301,6 @@
         },
         options: {
           ...baseOptions,
-          plugins: {
-            ...baseOptions.plugins,
-            tooltip: {
-              ...baseOptions.plugins.tooltip,
-              callbacks: {
-                ...baseOptions.plugins.tooltip.callbacks,
-                label: (context) => {
-                  const val = context.parsed.y;
-                  const label = context.dataset.label;
-                  if (label === t("chartBatSoc")) {
-                    return t("tooltipBatSoc", { soc: val });
-                  }
-                  if (label === t("chartGridVolt")) {
-                    return val < 50
-                      ? t("tooltipGridOffline")
-                      : t("tooltipGridOnline", { v: val });
-                  }
-                  if (label === t("chartGridFreq")) {
-                    return t("tooltipGridFreq", { f: val });
-                  }
-                  return `${label}: ${val}`;
-                },
-              },
-            },
-          },
           scales: {
             ...baseOptions.scales,
             yVolt: {
@@ -385,7 +344,7 @@
       });
       chartInstances.push(gridChartInstance);
 
-      // Mobile Touch Scrubber Setup for Grid Chart
+      // Scrubber Setup for Grid Chart
       const gridLine = document.getElementById("gridScrubLine");
       const gridReadout = document.getElementById("gridScrubReadout");
       const gridTimeEl = document.getElementById("gridScrubTime");
@@ -425,7 +384,6 @@
         if (gridReadout) gridReadout.classList.add("is-active");
       }
 
-      // Initialize readout with latest record
       updateGridReadout(records[records.length - 1]);
 
       setupScrubber({
@@ -469,24 +427,6 @@
         },
         options: {
           ...baseOptions,
-          plugins: {
-            ...baseOptions.plugins,
-            tooltip: {
-              ...baseOptions.plugins.tooltip,
-              callbacks: {
-                ...baseOptions.plugins.tooltip.callbacks,
-                label: (context) => {
-                  const val = context.parsed.y;
-                  if (context.dataset.label === t("chartBat")) {
-                    if (val > 0) return t("tooltipBatCharge", { w: val });
-                    if (val < 0) return t("tooltipBatDischarge", { w: val });
-                    return t("tooltipBatBuffer");
-                  }
-                  return `${context.dataset.label}: ${val} ${t("unitW")}`;
-                },
-              },
-            },
-          },
           scales: {
             ...baseOptions.scales,
             y: {
@@ -498,7 +438,7 @@
       });
       chartInstances.push(loadBatChartInstance);
 
-      // Mobile Touch Scrubber Setup for Load & Bat Chart
+      // Scrubber Setup for Load & Bat Chart
       const loadBatLine = document.getElementById("loadBatScrubLine");
       const loadBatReadout = document.getElementById("loadBatScrubReadout");
       const loadBatTimeEl = document.getElementById("loadBatScrubTime");
@@ -536,7 +476,6 @@
         if (loadBatReadout) loadBatReadout.classList.add("is-active");
       }
 
-      // Initialize readout with latest record
       updateLoadBatReadout(records[records.length - 1]);
 
       setupScrubber({
@@ -551,113 +490,204 @@
 
     // 3. Full Power Balance Chart (Advanced Tab)
     const powerCanvas = document.getElementById("powerChart");
+    let powerChartInstance = null;
     if (powerCanvas) {
-      chartInstances.push(
-        new Chart(powerCanvas, {
-          type: "line",
-          data: {
-            labels,
-            datasets: [
-              {
-                label: t("chartPv"),
-                data: pvPower,
-                borderColor: "#f59e0b",
-                backgroundColor: "rgba(245, 158, 11, 0.16)",
-                fill: true,
-                tension: 0.25,
-                pointRadius: 0,
-                borderWidth: 2,
-              },
-              {
-                label: t("chartLoadVA"),
-                data: loadVA,
-                borderColor: "#7c5cff",
-                backgroundColor: "rgba(124, 92, 255, 0.14)",
-                fill: true,
-                tension: 0.25,
-                pointRadius: 0,
-                borderWidth: 2,
-              },
-              {
-                label: t("chartLoadActive"),
-                data: loadActive,
-                borderColor: "#38bdf8",
-                tension: 0.25,
-                pointRadius: 0,
-                borderWidth: 1.5,
-                borderDash: [4, 3],
-              },
-              {
-                label: t("chartBat"),
-                data: batPower,
-                borderColor: "#22c55e",
-                tension: 0.25,
-                pointRadius: 0,
-                borderWidth: 1.8,
-              },
-            ],
-          },
-          options: {
-            ...baseOptions,
-            scales: {
-              ...baseOptions.scales,
-              y: {
-                ticks: { color: "#8c95b8" },
-                grid: { color: "rgba(255,255,255,0.05)" },
-              },
+      powerChartInstance = new Chart(powerCanvas, {
+        type: "line",
+        data: {
+          labels,
+          datasets: [
+            {
+              label: t("chartPv"),
+              data: pvPower,
+              borderColor: "#f59e0b",
+              backgroundColor: "rgba(245, 158, 11, 0.16)",
+              fill: true,
+              tension: 0.25,
+              pointRadius: 0,
+              borderWidth: 2,
+            },
+            {
+              label: t("chartLoadVA"),
+              data: loadVA,
+              borderColor: "#7c5cff",
+              backgroundColor: "rgba(124, 92, 255, 0.14)",
+              fill: true,
+              tension: 0.25,
+              pointRadius: 0,
+              borderWidth: 2,
+            },
+            {
+              label: t("chartLoadActive"),
+              data: loadActive,
+              borderColor: "#38bdf8",
+              tension: 0.25,
+              pointRadius: 0,
+              borderWidth: 1.5,
+              borderDash: [4, 3],
+            },
+            {
+              label: t("chartBat"),
+              data: batPower,
+              borderColor: "#22c55e",
+              tension: 0.25,
+              pointRadius: 0,
+              borderWidth: 1.8,
+            },
+          ],
+        },
+        options: {
+          ...baseOptions,
+          scales: {
+            ...baseOptions.scales,
+            y: {
+              ticks: { color: "#8c95b8" },
+              grid: { color: "rgba(255,255,255,0.05)" },
             },
           },
-        })
-      );
+        },
+      });
+      chartInstances.push(powerChartInstance);
+
+      // Scrubber Setup for Full Power Balance Chart
+      const powerLine = document.getElementById("powerScrubLine");
+      const powerReadout = document.getElementById("powerScrubReadout");
+      const powerTimeEl = document.getElementById("powerScrubTime");
+      const powerPvEl = document.getElementById("powerScrubPv");
+      const powerVaEl = document.getElementById("powerScrubVa");
+      const powerLoadEl = document.getElementById("powerScrubLoad");
+      const powerBatEl = document.getElementById("powerScrubBat");
+      const powerModeEl = document.getElementById("powerScrubMode");
+
+      function updatePowerReadout(rec) {
+        if (!rec) return;
+        if (powerTimeEl) powerTimeEl.textContent = rec.timestamp.slice(11, 16);
+        if (powerPvEl) {
+          powerPvEl.textContent = `☀️ ${t("scrubPv")}: ${rec.pvPower} ${t("unitW")}`;
+        }
+        if (powerVaEl) {
+          powerVaEl.textContent = `⚡ ${t("scrubVa")}: ${rec.loadVA} ${t("unitVa")}`;
+        }
+        if (powerLoadEl) {
+          const loadW = Math.max(0, Number(rec.loadActive || 0));
+          powerLoadEl.textContent = `🏠 ${t("scrubLoad")}: ${loadW} ${t("unitW")}`;
+          powerLoadEl.className = loadW > 3000 ? "val-amber" : "val-blue";
+        }
+        if (powerBatEl) {
+          const bp = Math.round(Number(rec.batVolt || 0) * Number(rec.batCurr || 0));
+          if (bp > 0) {
+            powerBatEl.textContent = `🔋 ${t("scrubBat")}: +${bp} ${t("unitW")}`;
+            powerBatEl.className = "val-green";
+          } else if (bp < 0) {
+            powerBatEl.textContent = `🔋 ${t("scrubBat")}: ${bp} ${t("unitW")}`;
+            powerBatEl.className = Math.abs(bp) > 2000 ? "val-red" : "val-amber";
+          } else {
+            powerBatEl.textContent = `🔋 ${t("scrubBat")}: 0 ${t("unitW")}`;
+            powerBatEl.className = "val-blue";
+          }
+        }
+        if (powerModeEl) {
+          const m = window.SmartESS?.I18n?.translateMode
+            ? window.SmartESS.I18n.translateMode(rec.mode)
+            : rec.mode;
+          powerModeEl.textContent = m || "—";
+        }
+        if (powerReadout) powerReadout.classList.add("is-active");
+      }
+
+      updatePowerReadout(records[records.length - 1]);
+
+      setupScrubber({
+        chart: powerChartInstance,
+        canvas: powerCanvas,
+        lineEl: powerLine,
+        readoutEl: powerReadout,
+        records,
+        onScrub: updatePowerReadout,
+      });
     }
 
     // 4. Thermal Profile Chart (Advanced Tab)
     const tempCanvas = document.getElementById("tempChart");
+    let tempChartInstance = null;
     if (tempCanvas) {
-      chartInstances.push(
-        new Chart(tempCanvas, {
-          type: "line",
-          data: {
-            labels,
-            datasets: [
-              {
-                label: t("chartTempInv"),
-                data: tempInv,
-                borderColor: "#ef4444",
-                tension: 0.25,
-                pointRadius: 0,
-                borderWidth: 2,
-              },
-              {
-                label: t("chartTempB"),
-                data: tempB,
-                borderColor: "#7c5cff",
-                tension: 0.25,
-                pointRadius: 0,
-                borderWidth: 2,
-              },
-              {
-                label: t("chartTempPv"),
-                data: tempPv,
-                borderColor: "#f59e0b",
-                tension: 0.25,
-                pointRadius: 0,
-                borderWidth: 2,
-              },
-            ],
-          },
-          options: {
-            ...baseOptions,
-            scales: {
-              ...baseOptions.scales,
-              y: {
-                ticks: { color: "#8c95b8" },
-                grid: { color: "rgba(255,255,255,0.05)" },
-              },
+      tempChartInstance = new Chart(tempCanvas, {
+        type: "line",
+        data: {
+          labels,
+          datasets: [
+            {
+              label: t("chartTempInv"),
+              data: tempInv,
+              borderColor: "#ef4444",
+              tension: 0.25,
+              pointRadius: 0,
+              borderWidth: 2,
+            },
+            {
+              label: t("chartTempB"),
+              data: tempB,
+              borderColor: "#7c5cff",
+              tension: 0.25,
+              pointRadius: 0,
+              borderWidth: 2,
+            },
+            {
+              label: t("chartTempPv"),
+              data: tempPv,
+              borderColor: "#f59e0b",
+              tension: 0.25,
+              pointRadius: 0,
+              borderWidth: 2,
+            },
+          ],
+        },
+        options: {
+          ...baseOptions,
+          scales: {
+            ...baseOptions.scales,
+            y: {
+              ticks: { color: "#8c95b8" },
+              grid: { color: "rgba(255,255,255,0.05)" },
             },
           },
-        })
-      );
+        },
+      });
+      chartInstances.push(tempChartInstance);
+
+      // Scrubber Setup for Thermal Profile Chart
+      const tempLine = document.getElementById("tempScrubLine");
+      const tempReadout = document.getElementById("tempScrubReadout");
+      const tempTimeEl = document.getElementById("tempScrubTime");
+      const tempInvEl = document.getElementById("tempScrubInv");
+      const tempBEl = document.getElementById("tempScrubB");
+      const tempPvEl = document.getElementById("tempScrubPv");
+
+      function updateTempReadout(rec) {
+        if (!rec) return;
+        if (tempTimeEl) tempTimeEl.textContent = rec.timestamp.slice(11, 16);
+        if (tempInvEl) {
+          tempInvEl.textContent = `🌡️ ${t("scrubInv")}: ${rec.tempInv} ${t("unitDeg")}`;
+        }
+        if (tempBEl) {
+          tempBEl.textContent = `🌡️ ${t("scrubSinkB")}: ${rec.tempB} ${t("unitDeg")}`;
+        }
+        if (tempPvEl) {
+          tempPvEl.textContent = `☀️ ${t("scrubPv")}: ${rec.tempPv} ${t("unitDeg")}`;
+        }
+        if (tempReadout) tempReadout.classList.add("is-active");
+      }
+
+      updateTempReadout(records[records.length - 1]);
+
+      setupScrubber({
+        chart: tempChartInstance,
+        canvas: tempCanvas,
+        lineEl: tempLine,
+        readoutEl: tempReadout,
+        records,
+        onScrub: updateTempReadout,
+      });
     }
   }
 

@@ -168,11 +168,6 @@
               <span>20:00</span>
               <span>24:00</span>
             </div>
-            <div class="timeline-legend">
-              <div class="legend-item"><span class="legend-dot" style="background:#22c55e"></span> <span data-i18n="legendOnline">В мережі (&ge;180В)</span></div>
-              <div class="legend-item"><span class="legend-dot" style="background:#f59e0b"></span> <span data-i18n="legendWarning">Нестабільна (&lt;180В)</span></div>
-              <div class="legend-item"><span class="legend-dot" style="background:#ef4444"></span> <span data-i18n="legendOffline">Відключення світла (0В)</span></div>
-            </div>
           </div>
 
           <!-- Grid Voltage & Frequency Chart with Touch Scrubber -->
@@ -265,7 +260,7 @@
           </div>
         </div>
 
-        <!-- Full Power Balance Chart -->
+        <!-- Full Power Balance Chart with Touch Scrubber -->
         <div class="card chart-full">
           <div class="card-header">
             <div class="card-label" data-i18n="powerBalanceTitle">Повний баланс потужності (Сонце, Навантаження, АКБ)</div>
@@ -273,10 +268,20 @@
           </div>
           <div class="chart-box-lg">
             <canvas id="powerChart"></canvas>
+            <div class="chart-scrubber-line" id="powerScrubLine"></div>
+          </div>
+          <div class="chart-scrubber-readout" id="powerScrubReadout">
+            <div class="scrub-time"><span class="scrub-icon">🕒</span> <span id="powerScrubTime">--:--</span></div>
+            <div class="scrub-pill"><span class="scrub-dot dot-amber"></span> <span id="powerScrubPv">— Вт</span></div>
+            <div class="scrub-pill"><span class="scrub-dot dot-purple"></span> <span id="powerScrubVa">— ВА</span></div>
+            <div class="scrub-pill"><span class="scrub-dot dot-blue"></span> <span id="powerScrubLoad">— Вт</span></div>
+            <div class="scrub-pill"><span class="scrub-dot dot-green"></span> <span id="powerScrubBat">— Вт</span></div>
+            <div class="scrub-pill scrub-mode-pill"><span class="scrub-dot dot-gray"></span> <span id="powerScrubMode">—</span></div>
+            <div class="scrub-hint" data-i18n="scrubHint">Проведи пальцем по графіку</div>
           </div>
         </div>
 
-        <!-- Thermal Profile Chart -->
+        <!-- Thermal Profile Chart with Touch Scrubber -->
         <div class="card chart-full">
           <div class="card-header">
             <div class="card-label" data-i18n="thermalProfileTitle">Температурний профіль вузлів (°C)</div>
@@ -284,6 +289,14 @@
           </div>
           <div class="chart-box">
             <canvas id="tempChart"></canvas>
+            <div class="chart-scrubber-line" id="tempScrubLine"></div>
+          </div>
+          <div class="chart-scrubber-readout" id="tempScrubReadout">
+            <div class="scrub-time"><span class="scrub-icon">🕒</span> <span id="tempScrubTime">--:--</span></div>
+            <div class="scrub-pill"><span class="scrub-dot dot-red"></span> <span id="tempScrubInv">— °C</span></div>
+            <div class="scrub-pill"><span class="scrub-dot dot-purple"></span> <span id="tempScrubB">— °C</span></div>
+            <div class="scrub-pill"><span class="scrub-dot dot-amber"></span> <span id="tempScrubPv">— °C</span></div>
+            <div class="scrub-hint" data-i18n="scrubHint">Проведи пальцем по графіку</div>
           </div>
         </div>
 
