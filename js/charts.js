@@ -165,9 +165,7 @@
     if (!records || records.length === 0) return;
 
     const t = window.SmartESS?.I18n?.t || window.t || ((k) => k);
-    const isMobile =
-      typeof window !== "undefined" &&
-      (window.innerWidth <= 768 || "ontouchstart" in window);
+    const isMobile = typeof window !== "undefined" && window.innerWidth <= 768;
 
     const labels = records.map((r) => r.timestamp.slice(11, 16));
 
@@ -309,6 +307,7 @@
               min: 0,
               max: 260,
               ticks: {
+                display: !isMobile,
                 color: "#38bdf8",
                 maxTicksLimit: 6,
                 callback: (v) => v + " " + t("unitV"),
@@ -320,7 +319,9 @@
               position: "right",
               min: 0,
               max: 100,
+              display: !isMobile,
               ticks: {
+                display: !isMobile,
                 color: "#22c55e",
                 maxTicksLimit: 5,
                 callback: (v) => v + "%",
@@ -332,7 +333,9 @@
               position: "right",
               min: 45,
               max: 55,
+              display: !isMobile,
               ticks: {
+                display: !isMobile,
                 color: "#f59e0b",
                 maxTicksLimit: 3,
                 callback: (v) => v + " " + t("unitHz"),

@@ -1207,6 +1207,13 @@ dialog::backdrop {
     padding: 3px 8px;
   }
 
+  .timeline-legend {
+    justify-content: flex-start;
+    gap: 8px 12px;
+    font-size: 0.72rem;
+    flex-wrap: wrap;
+  }
+
   .chart-box-main {
     height: 220px;
   }
