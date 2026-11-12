@@ -775,11 +775,24 @@ function openCalendar() {
       return;
     } catch (err) {}
   }
-  datePicker.focus();
+  try {
+    datePicker.focus();
+  } catch (err) {}
 }
 
 if (dateDisplayWrap) {
-  dateDisplayWrap.onclick = openCalendar;
+  dateDisplayWrap.addEventListener("click", (e) => {
+    // If the click directly hit the datePicker overlay, let the native browser picker open
+    if (e.target === datePicker) return;
+    openCalendar();
+  });
+}
+
+if (datePicker) {
+  datePicker.onchange = () => {
+    updateDateControls(datePicker.value);
+    loadDashboard();
+  };
 }
 
 if (prevDayBtn) prevDayBtn.onclick = () => stepDate(-1);
@@ -796,12 +809,6 @@ if (todayBtn) {
 }
 
 if (refreshBtn) refreshBtn.onclick = loadDashboard;
-if (datePicker) {
-  datePicker.onchange = () => {
-    updateDateControls(datePicker.value);
-    loadDashboard();
-  };
-}
 
   // Global namespace export
   global.SmartESS = global.SmartESS || {};
