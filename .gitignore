@@ -12,3 +12,6 @@ discovering purpose/
 
 # Logs & temp files
 *.log
+
+# Local agent / assistant context
+AGENT_CONTEXT.md
