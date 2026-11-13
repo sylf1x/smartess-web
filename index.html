@@ -171,6 +171,9 @@
               <span>20:00</span>
               <span>24:00</span>
             </div>
+            <div class="timeline-readout" id="gridTimelineReadout">
+              <span class="timeline-readout-hint" data-i18n="timelineScrubHint">Натисни на ділянку, щоб побачити початок і кінець</span>
+            </div>
             <div class="timeline-legend">
               <div class="legend-item"><span class="legend-dot" style="background:#22c55e"></span> <span data-i18n="legendOnline">В мережі (&ge;180В)</span></div>
               <div class="legend-item"><span class="legend-dot" style="background:#f59e0b"></span> <span data-i18n="legendWarning">Нестабільна (&lt;180В)</span></div>
@@ -186,19 +189,23 @@
             <div class="card-title-group">
               <div class="card-label" data-i18n="gridChartCardTitle">Напруга мережі, заряд АКБ (%) та частота</div>
             </div>
-            <div class="infographic-stats">
-              <span class="stat-pill" id="statGridVoltRange">⚡ 220 В</span>
-              <span class="stat-pill pill-green" id="statGridBatRange">🔋 АКБ: — %</span>
-              <div class="chart-zoom-controls">
-                <button class="btn-zoom-step" data-zoom-chart="gridChart" data-zoom-dir="out" title="Zoom out" aria-label="Zoom out">−</button>
-                <button class="btn-zoom-step" data-zoom-chart="gridChart" data-zoom-dir="in" title="Zoom in" aria-label="Zoom in">+</button>
-                <button class="btn-reset-zoom" id="resetZoomGridBtn" data-reset-chart="gridChart" data-i18n="resetZoom">Скидання зуму</button>
-              </div>
-            </div>
+          </div>
+          <div class="chart-meta-bar chart-meta-pills">
+            <span class="stat-pill" id="statGridVoltRange">⚡ 220 В</span>
+            <span class="stat-pill pill-green" id="statGridBatRange">🔋 АКБ: — %</span>
           </div>
           <div class="chart-box-main">
             <canvas id="gridChart"></canvas>
             <div class="chart-scrubber-line" id="gridScrubLine"></div>
+          </div>
+          <div class="chart-controls-bar">
+            <span class="chart-gesture-hint chart-gesture-hint-touch" data-i18n="chartGestureHint">👆 Огляд · ✌️ Зсув</span>
+            <span class="chart-gesture-hint chart-gesture-hint-desktop" data-i18n="chartDesktopHint">🖱️ Огляд · Перетягуй для зсуву</span>
+            <div class="chart-zoom-controls">
+              <button class="btn-zoom-step" data-zoom-chart="gridChart" data-zoom-dir="out" title="Zoom out" aria-label="Zoom out">−</button>
+              <button class="btn-zoom-step" data-zoom-chart="gridChart" data-zoom-dir="in" title="Zoom in" aria-label="Zoom in">+</button>
+              <button class="btn-reset-zoom" id="resetZoomGridBtn" data-reset-chart="gridChart" data-i18n="resetZoom">Скидання зуму</button>
+            </div>
           </div>
           <div class="chart-scrubber-readout" id="gridScrubReadout">
             <div class="scrub-time"><span class="scrub-icon">🕒</span> <span id="gridScrubTime">--:--</span></div>
@@ -212,26 +219,30 @@
 
         <!-- Load & Battery History Chart with Touch Scrubber -->
         <section class="card chart-full">
-          <div class="card-header">
+          <div class="card-header chart-unit-header">
             <div class="card-title-group">
               <div class="card-label" id="loadBatHistoryTitle" data-i18n="loadBatHistoryTitle">Історія навантаження будинку та роботи АКБ (Вт)</div>
             </div>
-            <div class="chart-header-actions">
-              <div class="stats-unit-toggle">
-                <button class="stats-unit-btn active" id="loadBatUnitWBtn" data-unit="w" data-i18n="unitWBtn">Вт (W)</button>
-                <button class="stats-unit-btn" id="loadBatUnitABtn" data-unit="a" data-i18n="unitABtn">А (A)</button>
-              </div>
-              <div class="card-stats" id="loadBatStats">—</div>
-              <div class="chart-zoom-controls">
-                <button class="btn-zoom-step" data-zoom-chart="loadBatChart" data-zoom-dir="out" title="Zoom out" aria-label="Zoom out">−</button>
-                <button class="btn-zoom-step" data-zoom-chart="loadBatChart" data-zoom-dir="in" title="Zoom in" aria-label="Zoom in">+</button>
-                <button class="btn-reset-zoom" id="resetZoomLoadBtn" data-reset-chart="loadBatChart" data-i18n="resetZoom">Скидання зуму</button>
-              </div>
+            <div class="stats-unit-toggle">
+              <button class="stats-unit-btn active" id="loadBatUnitWBtn" data-unit="w" data-i18n="unitWBtn">Вт (W)</button>
+              <button class="stats-unit-btn" id="loadBatUnitABtn" data-unit="a" data-i18n="unitABtn">А (A)</button>
             </div>
+          </div>
+          <div class="chart-meta-bar">
+            <div class="card-stats" id="loadBatStats">—</div>
           </div>
           <div class="chart-box-main">
             <canvas id="loadBatChart"></canvas>
             <div class="chart-scrubber-line" id="loadBatScrubLine"></div>
+          </div>
+          <div class="chart-controls-bar">
+            <span class="chart-gesture-hint chart-gesture-hint-touch" data-i18n="chartGestureHint">👆 Огляд · ✌️ Зсув</span>
+            <span class="chart-gesture-hint chart-gesture-hint-desktop" data-i18n="chartDesktopHint">🖱️ Огляд · Перетягуй для зсуву</span>
+            <div class="chart-zoom-controls">
+              <button class="btn-zoom-step" data-zoom-chart="loadBatChart" data-zoom-dir="out" title="Zoom out" aria-label="Zoom out">−</button>
+              <button class="btn-zoom-step" data-zoom-chart="loadBatChart" data-zoom-dir="in" title="Zoom in" aria-label="Zoom in">+</button>
+              <button class="btn-reset-zoom" id="resetZoomLoadBtn" data-reset-chart="loadBatChart" data-i18n="resetZoom">Скидання зуму</button>
+            </div>
           </div>
           <div class="chart-scrubber-readout" id="loadBatScrubReadout">
             <div class="scrub-time"><span class="scrub-icon">🕒</span> <span id="loadBatScrubTime">--:--</span></div>
@@ -246,7 +257,7 @@
       <!-- TAB 2: STATISTICS (Battery Energy, Discharged/Charged, Custom Time Range) -->
       <section id="tabStats" class="tab-pane">
         <!-- Date Selector Toolbar -->
-        <div class="history-toolbar">
+        <div class="history-toolbar history-toolbar-top">
           <div class="history-title-wrap">
             <span class="history-icon">📅</span>
             <span class="history-title" data-i18n="statsPeriodTitle">Період статистики:</span>
@@ -267,17 +278,15 @@
 
         <!-- Time Range & Outage Presets Card -->
         <div class="card stats-filter-card">
-          <div class="stats-filter-section" style="justify-content: space-between; align-items: center;">
-            <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
-              <div class="stats-filter-label" data-i18n="statsTimeChoice">Діапазон вимірювання (Дата та Час):</div>
-              <div class="range-group" id="statsPresetButtons">
-                <button class="range-btn active" data-stats-range="all" data-i18n="rangeAll">Весь день</button>
-                <button class="range-btn" data-stats-range="7d" data-i18n="range7d">Тиждень</button>
-                <button class="range-btn" data-stats-range="14d" data-i18n="range14d">14 днів</button>
-                <button class="range-btn" data-stats-range="30d" data-i18n="range30d">30 днів</button>
-              </div>
-            </div>
+          <div class="stats-filter-header">
+            <div class="stats-filter-label" data-i18n="statsTimeChoice">Діапазон вимірювання</div>
             <div class="stats-interval-badge" id="statsIntervalBadge">00:00 – 23:59</div>
+          </div>
+          <div class="range-group stats-segmented" id="statsPresetButtons">
+            <button class="range-btn active" data-stats-range="all" data-i18n="rangeAll">Весь день</button>
+            <button class="range-btn" data-stats-range="7d" data-i18n="range7d">Тиждень</button>
+            <button class="range-btn" data-stats-range="14d" data-i18n="range14d">14 днів</button>
+            <button class="range-btn" data-stats-range="30d" data-i18n="range30d">30 днів</button>
           </div>
 
           <!-- Outage Presets Container (Populated dynamically when outages exist) -->
@@ -368,15 +377,17 @@
 
         <!-- Hourly Distribution Chart with Wh / Ah Toggle and Scrubber Readout -->
         <section class="card chart-full">
-          <div class="card-header">
+          <div class="card-header chart-unit-header">
             <div class="card-title-group">
               <div class="card-label" id="statsHourlyTitle" data-i18n="statsHourlyTitle">Погодинний розподіл енергії АКБ</div>
-              <div class="card-sub-inline" id="statsHourlySubBadge" data-i18n="statsHourlyTotalPerHour">сумарно за кожну годину (не середнє)</div>
             </div>
             <div class="stats-unit-toggle">
               <button class="stats-unit-btn active" id="statsUnitWhBtn" data-unit="wh" data-i18n="statsUnitWh">Вт·год (Wh)</button>
               <button class="stats-unit-btn" id="statsUnitAhBtn" data-unit="ah" data-i18n="statsUnitAh">А·год (Ah)</button>
             </div>
+          </div>
+          <div class="chart-meta-bar">
+            <div class="card-sub-inline" id="statsHourlySubBadge" data-i18n="statsHourlyTotalPerHour">сумарно за кожну годину (не середнє)</div>
           </div>
           <div class="chart-box-main">
             <canvas id="statsHourlyChart"></canvas>
@@ -396,7 +407,7 @@
       <!-- TAB 3: ADVANCED (Detailed Analytics, Solar, Thermals, Raw Table) -->
       <section id="tabAdvanced" class="tab-pane">
         <!-- Date Selector Toolbar in Advanced Tab -->
-        <div class="history-toolbar" style="margin-bottom: 12px;">
+        <div class="history-toolbar history-toolbar-top">
           <div class="history-title-wrap">
             <span class="history-icon">📅</span>
             <span class="history-title" data-i18n="advDateTitle">Дата аналітики:</span>
@@ -452,19 +463,25 @@
         <!-- Full Power Balance Chart with Touch Scrubber -->
         <div class="card chart-full">
           <div class="card-header">
-            <div class="card-label" data-i18n="powerBalanceTitle">Повний баланс потужності (Сонце, Навантаження, АКБ)</div>
-            <div class="chart-header-actions">
-              <div class="card-stats" id="powerStats">—</div>
-              <div class="chart-zoom-controls">
-                <button class="btn-zoom-step" data-zoom-chart="powerChart" data-zoom-dir="out" title="Zoom out" aria-label="Zoom out">−</button>
-                <button class="btn-zoom-step" data-zoom-chart="powerChart" data-zoom-dir="in" title="Zoom in" aria-label="Zoom in">+</button>
-                <button class="btn-reset-zoom" id="resetZoomPowerBtn" data-reset-chart="powerChart" data-i18n="resetZoom">Скидання зуму</button>
-              </div>
+            <div class="card-title-group">
+              <div class="card-label" data-i18n="powerBalanceTitle">Повний баланс потужності (Сонце, Навантаження, АКБ)</div>
             </div>
+          </div>
+          <div class="chart-meta-bar">
+            <div class="card-stats" id="powerStats">—</div>
           </div>
           <div class="chart-box-lg">
             <canvas id="powerChart"></canvas>
             <div class="chart-scrubber-line" id="powerScrubLine"></div>
+          </div>
+          <div class="chart-controls-bar">
+            <span class="chart-gesture-hint chart-gesture-hint-touch" data-i18n="chartGestureHint">👆 Огляд · ✌️ Зсув</span>
+            <span class="chart-gesture-hint chart-gesture-hint-desktop" data-i18n="chartDesktopHint">🖱️ Огляд · Перетягуй для зсуву</span>
+            <div class="chart-zoom-controls">
+              <button class="btn-zoom-step" data-zoom-chart="powerChart" data-zoom-dir="out" title="Zoom out" aria-label="Zoom out">−</button>
+              <button class="btn-zoom-step" data-zoom-chart="powerChart" data-zoom-dir="in" title="Zoom in" aria-label="Zoom in">+</button>
+              <button class="btn-reset-zoom" id="resetZoomPowerBtn" data-reset-chart="powerChart" data-i18n="resetZoom">Скидання зуму</button>
+            </div>
           </div>
           <div class="chart-scrubber-readout" id="powerScrubReadout">
             <div class="scrub-time"><span class="scrub-icon">🕒</span> <span id="powerScrubTime">--:--</span></div>
@@ -480,19 +497,25 @@
         <!-- Thermal Profile Chart with Touch Scrubber -->
         <div class="card chart-full">
           <div class="card-header">
-            <div class="card-label" data-i18n="thermalProfileTitle">Температурний профіль вузлів (°C)</div>
-            <div class="chart-header-actions">
-              <div class="card-stats" id="tempStats">—</div>
-              <div class="chart-zoom-controls">
-                <button class="btn-zoom-step" data-zoom-chart="tempChart" data-zoom-dir="out" title="Zoom out" aria-label="Zoom out">−</button>
-                <button class="btn-zoom-step" data-zoom-chart="tempChart" data-zoom-dir="in" title="Zoom in" aria-label="Zoom in">+</button>
-                <button class="btn-reset-zoom" id="resetZoomTempBtn" data-reset-chart="tempChart" data-i18n="resetZoom">Скидання зуму</button>
-              </div>
+            <div class="card-title-group">
+              <div class="card-label" data-i18n="thermalProfileTitle">Температурний профіль вузлів (°C)</div>
             </div>
+          </div>
+          <div class="chart-meta-bar">
+            <div class="card-stats" id="tempStats">—</div>
           </div>
           <div class="chart-box">
             <canvas id="tempChart"></canvas>
             <div class="chart-scrubber-line" id="tempScrubLine"></div>
+          </div>
+          <div class="chart-controls-bar">
+            <span class="chart-gesture-hint chart-gesture-hint-touch" data-i18n="chartGestureHint">👆 Огляд · ✌️ Зсув</span>
+            <span class="chart-gesture-hint chart-gesture-hint-desktop" data-i18n="chartDesktopHint">🖱️ Огляд · Перетягуй для зсуву</span>
+            <div class="chart-zoom-controls">
+              <button class="btn-zoom-step" data-zoom-chart="tempChart" data-zoom-dir="out" title="Zoom out" aria-label="Zoom out">−</button>
+              <button class="btn-zoom-step" data-zoom-chart="tempChart" data-zoom-dir="in" title="Zoom in" aria-label="Zoom in">+</button>
+              <button class="btn-reset-zoom" id="resetZoomTempBtn" data-reset-chart="tempChart" data-i18n="resetZoom">Скидання зуму</button>
+            </div>
           </div>
           <div class="chart-scrubber-readout" id="tempScrubReadout">
             <div class="scrub-time"><span class="scrub-icon">🕒</span> <span id="tempScrubTime">--:--</span></div>

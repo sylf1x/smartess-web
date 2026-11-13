@@ -66,6 +66,7 @@ const statGridNoData = document.getElementById("statGridNoData");
 const statGridVoltRange = document.getElementById("statGridVoltRange");
 const statGridBatRange = document.getElementById("statGridBatRange");
 const gridTimelineRibbon = document.getElementById("gridTimelineRibbon");
+const gridTimelineReadout = document.getElementById("gridTimelineReadout");
 
 // Initialize localization
 if (window.SmartESS?.I18n) {
@@ -673,6 +674,44 @@ function renderGridInfographic(records) {
     gridTimelineRibbon.innerHTML = "";
     const totalDayMinutes = 1440;
 
+    if (gridTimelineReadout) {
+      gridTimelineReadout.classList.remove("is-active");
+      gridTimelineReadout.innerHTML = `<span class="timeline-readout-hint">${t("timelineScrubHint")}</span>`;
+    }
+
+    const selectSegment = (seg, segEl) => {
+      gridTimelineRibbon
+        .querySelectorAll(".timeline-segment.is-selected")
+        .forEach((node) => node.classList.remove("is-selected"));
+      if (segEl) segEl.classList.add("is-selected");
+      if (!gridTimelineReadout || !seg) return;
+
+      const segDuration = Math.max(5, seg.endMinute - seg.startMinute);
+      const statusDot =
+        seg.state === "online"
+          ? "🟢"
+          : seg.state === "warning"
+            ? "🟡"
+            : seg.state === "nodata"
+              ? "⬜"
+              : "🔴";
+      const statusDesc =
+        seg.state === "online"
+          ? t("statusOnline")
+          : seg.state === "warning"
+            ? t("statusWarning")
+            : seg.state === "nodata"
+              ? t("statusNoData")
+              : t("statusOffline");
+
+      gridTimelineReadout.classList.add("is-active");
+      gridTimelineReadout.innerHTML = `
+        <span class="tl-status">${statusDot} ${statusDesc}</span>
+        <span class="tl-time">🕒 ${seg.startTime} – ${seg.endTime}</span>
+        <span class="tl-span">(${formatDuration(segDuration)})</span>
+      `;
+    };
+
     segments.forEach((seg) => {
       const segDuration = Math.max(5, seg.endMinute - seg.startMinute);
       const leftPct = (seg.startMinute / totalDayMinutes) * 100;
@@ -693,6 +732,8 @@ function renderGridInfographic(records) {
               : t("statusOffline");
 
       el.title = `${seg.startTime} – ${seg.endTime} (${formatDuration(segDuration)}): ${statusDesc}`;
+      el.addEventListener("click", () => selectSegment(seg, el));
+      el.addEventListener("mouseenter", () => selectSegment(seg, el));
       gridTimelineRibbon.appendChild(el);
     });
   }
