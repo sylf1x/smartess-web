@@ -1641,23 +1641,26 @@ async function loadDashboard(forceRefresh = false) {
       applyRangeAndRender();
     } else {
       // 2. History Mode (past date chosen):
-      // Keep top Live Status cards & Banner strictly reflecting the current moment
-      try {
-        const live = await fetchLiveTelemetry(dev);
-        if (live) {
-          renderKPI(live, dev);
-        }
-      } catch {}
-
-      // Use shared cached past-day telemetry unless user forced a manual Refresh
+      // Check shared 30-day cache first so switching to any cached date renders instantaneously
       const cachedRecs = !forceRefresh ? getCachedRawDay(dev, selectedDate) : null;
       if (cachedRecs) {
         fullChronoRecords = cachedRecs;
         cachePastDay(dev, selectedDate, fullChronoRecords);
         applyRangeAndRender();
+
+        // Keep top Live Status KPI cards & Banner fresh in background without blocking chart render
+        fetchLiveTelemetry(dev)
+          .then((live) => {
+            if (live) renderKPI(live, dev);
+          })
+          .catch(() => {});
       } else {
-        // Fetch historical data for the chosen date for charts, infographic ribbon, and table
-        const dat = await SmartESS.API.fetchFullDayData(dev, selectedDate);
+        // Cold fetch: retrieve Live KPI telemetry and historical day telemetry in parallel
+        const [live, dat] = await Promise.all([
+          fetchLiveTelemetry(dev).catch(() => null),
+          SmartESS.API.fetchFullDayData(dev, selectedDate),
+        ]);
+        if (live) renderKPI(live, dev);
         if (!dat) return;
         const rawRecords = SmartESS.API.parseRows(dat);
 
@@ -1739,7 +1742,17 @@ tabButtons.forEach((btn) => {
   };
 });
 
-// Per-graph zoom reset (or global header fallback)
+// Per-graph step zoom (+/-) and reset controls
+document.querySelectorAll(".btn-zoom-step[data-zoom-chart]").forEach((btn) => {
+  btn.onclick = () => {
+    const dir = btn.dataset.zoomDir === "out" ? -1 : 1;
+    const stepFactor = dir > 0 ? 1.15 : 1 / 1.15;
+    if (typeof SmartESS.Charts.zoomChart === "function") {
+      SmartESS.Charts.zoomChart(btn.dataset.zoomChart, stepFactor);
+    }
+  };
+});
+
 document.querySelectorAll(".btn-reset-zoom[data-reset-chart], #resetZoomHeaderBtn").forEach((btn) => {
   btn.onclick = () => {
     SmartESS.Charts.resetZoom(btn.dataset.resetChart || undefined);

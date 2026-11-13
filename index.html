@@ -189,7 +189,11 @@
             <div class="infographic-stats">
               <span class="stat-pill" id="statGridVoltRange">⚡ 220 В</span>
               <span class="stat-pill pill-green" id="statGridBatRange">🔋 АКБ: — %</span>
-              <button class="btn-reset-zoom" id="resetZoomGridBtn" data-reset-chart="gridChart" data-i18n="resetZoom">Скидання зуму</button>
+              <div class="chart-zoom-controls">
+                <button class="btn-zoom-step" data-zoom-chart="gridChart" data-zoom-dir="out" title="Zoom out" aria-label="Zoom out">−</button>
+                <button class="btn-zoom-step" data-zoom-chart="gridChart" data-zoom-dir="in" title="Zoom in" aria-label="Zoom in">+</button>
+                <button class="btn-reset-zoom" id="resetZoomGridBtn" data-reset-chart="gridChart" data-i18n="resetZoom">Скидання зуму</button>
+              </div>
             </div>
           </div>
           <div class="chart-box-main">
@@ -218,7 +222,11 @@
                 <button class="stats-unit-btn" id="loadBatUnitABtn" data-unit="a" data-i18n="unitABtn">А (A)</button>
               </div>
               <div class="card-stats" id="loadBatStats">—</div>
-              <button class="btn-reset-zoom" id="resetZoomLoadBtn" data-reset-chart="loadBatChart" data-i18n="resetZoom">Скидання зуму</button>
+              <div class="chart-zoom-controls">
+                <button class="btn-zoom-step" data-zoom-chart="loadBatChart" data-zoom-dir="out" title="Zoom out" aria-label="Zoom out">−</button>
+                <button class="btn-zoom-step" data-zoom-chart="loadBatChart" data-zoom-dir="in" title="Zoom in" aria-label="Zoom in">+</button>
+                <button class="btn-reset-zoom" id="resetZoomLoadBtn" data-reset-chart="loadBatChart" data-i18n="resetZoom">Скидання зуму</button>
+              </div>
             </div>
           </div>
           <div class="chart-box-main">
@@ -447,7 +455,11 @@
             <div class="card-label" data-i18n="powerBalanceTitle">Повний баланс потужності (Сонце, Навантаження, АКБ)</div>
             <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
               <div class="card-stats" id="powerStats">—</div>
-              <button class="btn-reset-zoom" id="resetZoomPowerBtn" data-reset-chart="powerChart" data-i18n="resetZoom">Скидання зуму</button>
+              <div class="chart-zoom-controls">
+                <button class="btn-zoom-step" data-zoom-chart="powerChart" data-zoom-dir="out" title="Zoom out" aria-label="Zoom out">−</button>
+                <button class="btn-zoom-step" data-zoom-chart="powerChart" data-zoom-dir="in" title="Zoom in" aria-label="Zoom in">+</button>
+                <button class="btn-reset-zoom" id="resetZoomPowerBtn" data-reset-chart="powerChart" data-i18n="resetZoom">Скидання зуму</button>
+              </div>
             </div>
           </div>
           <div class="chart-box-lg">
@@ -471,7 +483,11 @@
             <div class="card-label" data-i18n="thermalProfileTitle">Температурний профіль вузлів (°C)</div>
             <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
               <div class="card-stats" id="tempStats">—</div>
-              <button class="btn-reset-zoom" id="resetZoomTempBtn" data-reset-chart="tempChart" data-i18n="resetZoom">Скидання зуму</button>
+              <div class="chart-zoom-controls">
+                <button class="btn-zoom-step" data-zoom-chart="tempChart" data-zoom-dir="out" title="Zoom out" aria-label="Zoom out">−</button>
+                <button class="btn-zoom-step" data-zoom-chart="tempChart" data-zoom-dir="in" title="Zoom in" aria-label="Zoom in">+</button>
+                <button class="btn-reset-zoom" id="resetZoomTempBtn" data-reset-chart="tempChart" data-i18n="resetZoom">Скидання зуму</button>
+              </div>
             </div>
           </div>
           <div class="chart-box">

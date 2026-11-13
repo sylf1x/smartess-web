@@ -33,6 +33,55 @@
     statsDailyChartInstance = null;
   }
 
+  function lockYAxisScales(c) {
+    if (!c || c._yScalesLocked) return;
+    if (typeof c.isZoomedOrPanned === "function" && c.isZoomedOrPanned()) return;
+    const scales = c.scales || {};
+    const scaleOpts = c.options?.scales || {};
+    let lockedAny = false;
+
+    for (const [axisId, scale] of Object.entries(scales)) {
+      if (axisId === "x" || !scale) continue;
+      const opt = scaleOpts[axisId];
+      if (!opt) continue;
+      const hasChartArea = Boolean(c.chartArea && c.chartArea.height > 0);
+      const hasValidBounds =
+        Number.isFinite(scale.min) &&
+        Number.isFinite(scale.max) &&
+        scale.max >= scale.min &&
+        (hasChartArea || (Array.isArray(scale.ticks) && scale.ticks.length > 0));
+      if (!hasValidBounds) continue;
+
+      if (opt.min === undefined) opt.min = scale.min;
+      if (opt.max === undefined) opt.max = scale.max;
+      lockedAny = true;
+    }
+
+    if (lockedAny) {
+      c._yScalesLocked = true;
+    }
+  }
+
+  function zoomChart(chartOrId, factor = 1.15) {
+    const factorX = Number(factor);
+    if (!factorX || factorX <= 0) return;
+
+    const applyZoom = (c) => {
+      if (c && typeof c.zoom === "function") {
+        // Freeze full-day Y bounds before horizontal zooming so small windows (e.g. 200W) keep full scale (e.g. 0-1600W)
+        lockYAxisScales(c);
+        c.zoom({ x: factorX }, "none");
+      }
+    };
+
+    if (typeof chartOrId === "string") {
+      const target = chartInstances.find((c) => c.canvas && c.canvas.id === chartOrId);
+      if (target) applyZoom(target);
+      return;
+    }
+    chartInstances.forEach(applyZoom);
+  }
+
   function resetZoom(chartOrId) {
     if (typeof chartOrId === "string") {
       const target = chartInstances.find((c) => c.canvas && c.canvas.id === chartOrId);
@@ -52,6 +101,7 @@
     chartInstances.forEach((c) => {
       if (typeof c.resize === "function") {
         c.resize();
+        lockYAxisScales(c);
       }
     });
   }
@@ -100,21 +150,32 @@
     }
 
     let isTouching = false;
+    let isTwoFingerPan = false;
+    let lastPanMidX = 0;
     let startX = 0;
     let startY = 0;
     let isHorizontal = false;
+
+    const canPan = () => Boolean(chart.options?.plugins?.zoom?.pan?.enabled && typeof chart.pan === "function");
 
     canvas.addEventListener(
       "touchstart",
       (e) => {
         if (e.touches.length === 1) {
+          isTwoFingerPan = false;
           isTouching = true;
           startX = e.touches[0].clientX;
           startY = e.touches[0].clientY;
           isHorizontal = false;
           handleScrub(startX);
+        } else if (e.touches.length === 2 && canPan()) {
+          isTouching = false;
+          isHorizontal = false;
+          isTwoFingerPan = true;
+          lastPanMidX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
         } else {
           isTouching = false;
+          isTwoFingerPan = false;
         }
       },
       { passive: true, signal }
@@ -123,6 +184,25 @@
     canvas.addEventListener(
       "touchmove",
       (e) => {
+        if (e.touches.length === 2 && canPan()) {
+          const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+          if (!isTwoFingerPan) {
+            isTouching = false;
+            isHorizontal = false;
+            isTwoFingerPan = true;
+            lastPanMidX = midX;
+            if (e.cancelable) e.preventDefault();
+            return;
+          }
+          const dx = midX - lastPanMidX;
+          lastPanMidX = midX;
+          if (e.cancelable) e.preventDefault();
+          if (Math.abs(dx) >= 0.5) {
+            chart.pan({ x: dx }, undefined, "none");
+          }
+          return;
+        }
+
         if (!isTouching || e.touches.length !== 1) return;
         const curX = e.touches[0].clientX;
         const curY = e.touches[0].clientY;
@@ -149,10 +229,15 @@
 
     canvas.addEventListener(
       "touchend",
-      () => {
-        isTouching = false;
-        isHorizontal = false;
-        handleEnd();
+      (e) => {
+        if (!e.touches || e.touches.length < 2) {
+          isTwoFingerPan = false;
+        }
+        if (!e.touches || e.touches.length === 0) {
+          isTouching = false;
+          isHorizontal = false;
+          handleEnd();
+        }
       },
       { passive: true, signal }
     );
@@ -162,6 +247,7 @@
       () => {
         isTouching = false;
         isHorizontal = false;
+        isTwoFingerPan = false;
         handleEnd();
       },
       { passive: true, signal }
@@ -181,6 +267,26 @@
         handleEnd();
       },
       { signal }
+    );
+
+    canvas.addEventListener(
+      "wheel",
+      (e) => {
+        if (!canPan()) return;
+        const isZoomed = typeof chart.isZoomedOrPanned === "function" ? chart.isZoomedOrPanned() : false;
+        if (!isZoomed) return;
+
+        // Allow horizontal trackpad scroll (deltaX) or Shift+wheel to slide the zoomed graph;
+        // normal vertical wheel passes through untouched so page scrolling is never hijacked.
+        const useShiftY = e.shiftKey && Math.abs(e.deltaY) > 0;
+        const useHorizX = Math.abs(e.deltaX) > Math.abs(e.deltaY) && Math.abs(e.deltaX) > 0;
+        if (!useShiftY && !useHorizX) return;
+
+        const delta = useHorizX ? e.deltaX : e.deltaY;
+        if (e.cancelable) e.preventDefault();
+        chart.pan({ x: -delta }, undefined, "none");
+      },
+      { passive: false, signal }
     );
   }
 
@@ -461,17 +567,20 @@
             },
           },
           pan: {
-            enabled: false,
+            enabled: true,
+            mode: "x",
+            threshold: 6,
+            onPanStart({ event }) {
+              // Mobile 2-finger pan is handled directly in setupScrubber so 1-finger stays scrub-only;
+              // Desktop mouse drag pans horizontally freely when zoomed.
+              const isTouch = event?.pointerType === "touch" || Boolean(event?.srcEvent?.touches);
+              return !isTouch;
+            },
           },
           zoom: {
-            wheel: { enabled: true, speed: 0.1 },
-            pinch: { enabled: true },
-            drag: {
-              enabled: !isMobile,
-              backgroundColor: "rgba(124, 92, 255, 0.2)",
-              borderColor: "#7c5cff",
-              borderWidth: 1,
-            },
+            wheel: { enabled: false },
+            pinch: { enabled: false },
+            drag: { enabled: false },
             mode: "x",
           },
         },
@@ -553,9 +662,9 @@
               position: "right",
               min: 0,
               max: 100,
-              display: !isMobile,
+              display: false,
               ticks: {
-                display: !isMobile,
+                display: false,
                 color: "#22c55e",
                 maxTicksLimit: 5,
                 callback: (v) => v + "%",
@@ -567,9 +676,9 @@
               position: "right",
               min: 45,
               max: 55,
-              display: !isMobile,
+              display: false,
               ticks: {
-                display: !isMobile,
+                display: false,
                 color: "#f59e0b",
                 maxTicksLimit: 3,
                 callback: (v) => v + " " + t("unitHz"),
@@ -705,6 +814,7 @@
         },
       });
       chartInstances.push(loadBatChartInstance);
+      lockYAxisScales(loadBatChartInstance);
 
       // Scrubber Setup for Load & Bat Chart
       const loadBatLine = document.getElementById("loadBatScrubLine");
@@ -848,6 +958,7 @@
         },
       });
       chartInstances.push(powerChartInstance);
+      lockYAxisScales(powerChartInstance);
 
       // Scrubber Setup for Full Power Balance Chart
       const powerLine = document.getElementById("powerScrubLine");
@@ -983,6 +1094,7 @@
         },
       });
       chartInstances.push(tempChartInstance);
+      lockYAxisScales(tempChartInstance);
 
       // Scrubber Setup for Thermal Profile Chart
       const tempLine = document.getElementById("tempScrubLine");
@@ -1400,6 +1512,7 @@
     setStatsUnit,
     setLoadBatUnit,
     getLoadBatUnit: () => currentLoadBatUnit,
+    zoomChart,
     resetZoom,
     resizeCharts,
     destroyCharts,

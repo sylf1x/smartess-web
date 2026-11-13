@@ -745,7 +745,42 @@ input[type="date"].date-input-overlay::-webkit-calendar-picker-indicator {
   margin-top: 2px;
 }
 
-/* Reset Zoom Button */
+/* Chart Zoom Controls */
+.chart-zoom-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.btn-zoom-step {
+  min-width: 28px;
+  height: 26px;
+  padding: 0 8px;
+  font-size: 0.95rem;
+  font-weight: 700;
+  line-height: 1;
+  border-radius: 6px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+  touch-action: manipulation;
+  user-select: none;
+}
+
+.btn-zoom-step:hover {
+  background: var(--surface-hover);
+  border-color: var(--accent);
+}
+
+.btn-zoom-step:active {
+  transform: scale(0.95);
+}
+
 .btn-reset-zoom {
   padding: 4px 10px;
   font-size: 0.78rem;
@@ -755,6 +790,7 @@ input[type="date"].date-input-overlay::-webkit-calendar-picker-indicator {
   color: var(--muted);
   cursor: pointer;
   transition: all 0.15s ease;
+  touch-action: manipulation;
 }
 
 .btn-reset-zoom:hover {
