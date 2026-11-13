@@ -289,17 +289,39 @@ function renderKPI(latest, dev) {
 
   const isGridAvailable = gridV >= 50;
 
+  const rawMode = String(latest.mode || "").toLowerCase().trim();
+  const isExplicitBatMode =
+    rawMode.includes("battery") ||
+    rawMode.includes("contravariant") ||
+    rawMode.includes("inverter");
+  const isExplicitLineMode =
+    rawMode.includes("line") ||
+    rawMode.includes("mains") ||
+    rawMode.includes("bypass");
+
+  // Determine actual power source powering the house:
+  // - If grid is absent (< 50V): definitely on battery
+  // - If inverter explicitly reports Battery Mode: powering from battery, even if grid voltage is present at input (e.g. SBU priority or reconnection timer)
+  // - If inverter explicitly reports Line Mode: powering from grid
+  // - Fallback: if battery is actively discharging into load (batW < -25), powering from battery
+  const isPoweredByBattery =
+    !isGridAvailable ||
+    isExplicitBatMode ||
+    (!isExplicitLineMode && batW < -25);
+
+  const modeDesc = window.SmartESS?.I18n?.translateMode
+    ? window.SmartESS.I18n.translateMode(latest.mode)
+    : latest.mode || (isPoweredByBattery ? "Battery Mode" : "Line Mode");
+
   // 1. Power Source Banner
   if (powerBanner) {
-    if (isGridAvailable) {
+    if (!isPoweredByBattery) {
+      // Mains / Grid mode
       powerBanner.className = "power-banner mode-grid";
       if (bannerIcon) bannerIcon.textContent = "⚡";
       if (bannerTitle) bannerTitle.textContent = t("bannerGridTitle");
       if (bannerSub) {
         const chgNote = batW > 25 ? t("bannerGridChg", { w: batW }) : "";
-        const modeDesc = window.SmartESS?.I18n?.translateMode
-          ? window.SmartESS.I18n.translateMode(latest.mode)
-          : latest.mode || "Line Mode";
         bannerSub.textContent = t("bannerGridSub", {
           v: gridV,
           f: gridF,
@@ -310,12 +332,33 @@ function renderKPI(latest, dev) {
       if (bannerBadge) {
         bannerBadge.textContent = t("bannerGridBadge");
       }
-    } else {
-      powerBanner.className = "power-banner mode-battery";
+    } else if (isGridAvailable) {
+      // Battery mode, but grid voltage is present at input (e.g. SBU/SOL priority or reconnection timer)
+      powerBanner.className = "power-banner mode-battery-standby";
       if (bannerIcon) bannerIcon.textContent = "🔋";
+      if (bannerTitle) bannerTitle.textContent = t("bannerBatStandbyTitle");
+      if (bannerSub) {
+        bannerSub.textContent = t("bannerBatStandbySub", {
+          load: activeW || Math.abs(batW),
+          bat: Math.abs(batW),
+          v: gridV,
+          f: gridF,
+          mode: modeDesc,
+        });
+      }
+      if (bannerBadge) {
+        bannerBadge.textContent = t("bannerBatStandbyBadge");
+      }
+    } else {
+      // Outage mode (grid voltage is completely absent)
+      powerBanner.className = "power-banner mode-battery";
+      if (bannerIcon) bannerIcon.textContent = "🔴";
       if (bannerTitle) bannerTitle.textContent = t("bannerBatTitle");
       if (bannerSub) {
-        bannerSub.textContent = t("bannerBatSub", { load: activeW, bat: batW });
+        bannerSub.textContent = t("bannerBatSub", {
+          load: activeW || Math.abs(batW),
+          bat: Math.abs(batW),
+        });
       }
       if (bannerBadge) {
         bannerBadge.textContent = t("bannerBatBadge");
@@ -651,6 +694,82 @@ let statsRange = "all";
 let currentStatsUnit = "wh";
 let currentStatsRecords = [];
 
+/**
+ * Normalizes a single day's API rows (returned newest-first by server ingestion order)
+ * into chronological oldest-first acquisition order. Preserving server acquisition order
+ * avoids interleaving old/new timelines if the inverter clock was adjusted mid-day.
+ */
+function normalizeDayRecords(rows) {
+  if (!Array.isArray(rows) || rows.length === 0) return [];
+  const chrono = [...rows].reverse().filter(
+    (r) => typeof r.timestamp === "string" && r.timestamp.length >= 16
+  );
+  const deduped = [];
+  for (const r of chrono) {
+    if (
+      deduped.length === 0 ||
+      deduped[deduped.length - 1].timestamp !== r.timestamp
+    ) {
+      deduped.push(r);
+    } else {
+      deduped[deduped.length - 1] = r;
+    }
+  }
+  return deduped;
+}
+
+/**
+ * Computes monotonic cumulative energy from a hardware accumulator register,
+ * ignoring transient zero dropouts, tracking resets on the same calendar day,
+ * and flagging oscillating/corrupted sequences (more than 3 resets in a day).
+ */
+function calculateAccumulatorDelta(records, fieldName, isStartOfDay = false) {
+  if (!records || records.length === 0) return { total: 0, resets: 0, valid: false };
+  const firstVal = Number(records[0][fieldName] || 0);
+  let total = isStartOfDay && !isNaN(firstVal) && firstVal > 0 ? firstVal : 0;
+  let prev = !isNaN(firstVal) && firstVal >= 0 ? firstVal : 0;
+  let prevDate = String(records[0].timestamp || "").slice(0, 10);
+  let resets = 0;
+
+  for (let i = 1; i < records.length; i++) {
+    const r = records[i];
+    const val = Number(r[fieldName] || 0);
+    if (isNaN(val) || val < 0) continue;
+    const curDate = String(r.timestamp || "").slice(0, 10);
+
+    // Ignore transient 0 dropout if subsequent non-zero reading on the same day is >= prev
+    if (curDate === prevDate && val === 0 && prev > 0) {
+      let nextNonZero = null;
+      for (let j = i + 1; j < records.length; j++) {
+        if (String(records[j].timestamp || "").slice(0, 10) !== curDate) break;
+        const nv = Number(records[j][fieldName] || 0);
+        if (!isNaN(nv) && nv > 0) {
+          nextNonZero = nv;
+          break;
+        }
+      }
+      if (nextNonZero !== null && nextNonZero >= prev) {
+        continue;
+      }
+    }
+
+    if (curDate !== prevDate) {
+      // Midnight boundary: new calendar day starts, accumulator rolls over
+      total += val;
+      prevDate = curDate;
+    } else if (val >= prev) {
+      // Normal accumulation within the same day
+      total += (val - prev);
+    } else {
+      // Mid-day reset within the same day (val < prev)
+      resets++;
+      total += val;
+    }
+    prev = val;
+  }
+  return { total: Math.round(total), resets, valid: resets <= 3 };
+}
+
 async function getRecordsForDateRange(dev, dateFrom, dateTo) {
   if (!dev) return [];
   const selectedDate = datePicker ? datePicker.value : new Date().toLocaleDateString("en-CA");
@@ -660,7 +779,7 @@ async function getRecordsForDateRange(dev, dateFrom, dateTo) {
     }
     const dat = await SmartESS.API.fetchFullDayData(dev, dateFrom);
     if (!dat) return [];
-    return SmartESS.API.parseRows(dat).reverse();
+    return normalizeDayRecords(SmartESS.API.parseRows(dat));
   }
 
   const cur = new Date(dateFrom + "T00:00:00");
@@ -677,7 +796,7 @@ async function getRecordsForDateRange(dev, dateFrom, dateTo) {
       try {
         const dat = await SmartESS.API.fetchFullDayData(dev, d);
         if (!dat) return [];
-        return SmartESS.API.parseRows(dat).reverse();
+        return normalizeDayRecords(SmartESS.API.parseRows(dat));
       } catch {
         return [];
       }
@@ -706,60 +825,153 @@ function calculateBatteryStats(records, fromStr = "00:00", toStr = "23:59") {
       chgWh: 0, chgAh: 0, peakChgW: 0, peakChgA: 0, avgChgW: 0, avgChgA: 0, chgMinutes: 0, avgChgV: 0,
       netWh: 0, netAh: 0, whEfficiency: 0, ahEfficiency: 0,
       socStart: 0, socEnd: 0, socDelta: 0,
-      loadKwh: "0.00", pvKwh: "0.00",
     };
   }
 
   let disWh = 0, disAh = 0, peakDisW = 0, peakDisA = 0, disMinutes = 0;
   let chgWh = 0, chgAh = 0, peakChgW = 0, peakChgA = 0, chgMinutes = 0;
-  let loadWh = 0, pvWh = 0;
 
-  const dt = 5 / 60; // 5 min interval in hours
-
-  for (const r of filtered) {
-    const v = Number(r.batVolt || 0);
-    const a = Number(r.batCurr || 0);
-    const l = Math.max(0, Number(r.loadActive || 0));
-    const pv = Math.max(0, Number(r.pvPower || 0));
-
-    loadWh += l * dt;
-    pvWh += pv * dt;
+  // High-precision Trapezoidal Numerical Integration:
+  // - Uses actual dynamic delta-time (dt) between consecutive timestamps
+  // - Performs linear trapezoidal interpolation to eliminate rectangular aliasing
+  // - Accurately models zero-crossing transitions between charge and discharge
+  for (let i = 0; i < filtered.length; i++) {
+    const cur = filtered[i];
+    const v = Number(cur.batVolt || 0);
+    const a = Number(cur.batCurr || 0);
+    const curW = v * Math.abs(a);
+    const curA = Math.abs(a);
 
     if (a < 0) {
-      const curA = Math.abs(a);
-      const curW = v * curA;
-      disWh += curW * dt;
-      disAh += curA * dt;
-      disMinutes += 5;
       if (curW > peakDisW) peakDisW = curW;
       if (curA > peakDisA) peakDisA = curA;
     } else if (a > 0) {
-      const curA = a;
-      const curW = v * curA;
-      chgWh += curW * dt;
-      chgAh += curA * dt;
-      chgMinutes += 5;
       if (curW > peakChgW) peakChgW = curW;
       if (curA > peakChgA) peakChgA = curA;
+    }
+
+    if (i === 0) {
+      if (filtered.length === 1) {
+        const dt = 5 / 60;
+        if (a < 0) {
+          disWh += curW * dt;
+          disAh += curA * dt;
+          disMinutes += 5;
+        } else if (a > 0) {
+          chgWh += curW * dt;
+          chgAh += curA * dt;
+          chgMinutes += 5;
+        }
+      }
+      continue;
+    }
+
+    const prev = filtered[i - 1];
+    const prevV = Number(prev.batVolt || 0);
+    const prevA = Number(prev.batCurr || 0);
+
+    const tPrev = new Date(prev.timestamp.replace(" ", "T")).getTime();
+    const tCur = new Date(cur.timestamp.replace(" ", "T")).getTime();
+    let dtHours = (tCur - tPrev) / (1000 * 3600);
+    if (isNaN(dtHours) || dtHours <= 0 || dtHours > 0.25) {
+      dtHours = 5 / 60;
+    }
+
+    const prevP = prevV * prevA;
+    const curP = v * a;
+
+    if (prevA <= 0 && a <= 0) {
+      // Continuous discharge throughout interval
+      const avgP = (Math.abs(prevP) + Math.abs(curP)) / 2;
+      const avgA = (Math.abs(prevA) + Math.abs(a)) / 2;
+      disWh += avgP * dtHours;
+      disAh += avgA * dtHours;
+      if (avgA > 0.1) disMinutes += dtHours * 60;
+    } else if (prevA >= 0 && a >= 0) {
+      // Continuous charge throughout interval
+      const avgP = (prevP + curP) / 2;
+      const avgA = (prevA + a) / 2;
+      chgWh += avgP * dtHours;
+      chgAh += avgA * dtHours;
+      if (avgA > 0.1) chgMinutes += dtHours * 60;
+    } else if (prevA < 0 && a > 0) {
+      // Zero crossing: transition from discharge to charge
+      const span = Math.abs(prevA) + a;
+      const fDis = span > 0 ? Math.abs(prevA) / span : 0.5;
+      const fChg = 1 - fDis;
+      disWh += (Math.abs(prevP) / 2) * (fDis * dtHours);
+      disAh += (Math.abs(prevA) / 2) * (fDis * dtHours);
+      disMinutes += fDis * dtHours * 60;
+      chgWh += (curP / 2) * (fChg * dtHours);
+      chgAh += (a / 2) * (fChg * dtHours);
+      chgMinutes += fChg * dtHours * 60;
+    } else if (prevA > 0 && a < 0) {
+      // Zero crossing: transition from charge to discharge
+      const span = prevA + Math.abs(a);
+      const fChg = span > 0 ? prevA / span : 0.5;
+      const fDis = 1 - fChg;
+      chgWh += (prevP / 2) * (fChg * dtHours);
+      chgAh += (prevA / 2) * (fChg * dtHours);
+      chgMinutes += fChg * dtHours * 60;
+      disWh += (Math.abs(curP) / 2) * (fDis * dtHours);
+      disAh += (Math.abs(a) / 2) * (fDis * dtHours);
+      disMinutes += fDis * dtHours * 60;
     }
   }
 
   const disHours = disMinutes / 60;
   const chgHours = chgMinutes / 60;
 
-  const avgDisW = disHours > 0 ? Math.round(disWh / disHours) : 0;
-  const avgDisA = disHours > 0 ? (disAh / disHours).toFixed(1) : "0.0";
-  const avgDisV = disAh > 0 ? (disWh / disAh).toFixed(1) : "0.0";
+  // 1. Monotonic Hardware Accumulator Delta with Dropout Immunity & Reset Detection
+  const isStartOfDay =
+    fromStr === "00:00" ||
+    fromStr.endsWith(" 00:00") ||
+    (filtered[0] && filtered[0].timestamp.slice(11, 16) <= "00:05");
+  const hwDis = calculateAccumulatorDelta(filtered, "dayBatDisWh", isStartOfDay);
+  const hwChg = calculateAccumulatorDelta(filtered, "dayBatChgWh", isStartOfDay);
 
-  const avgChgW = chgHours > 0 ? Math.round(chgWh / chgHours) : 0;
-  const avgChgA = chgHours > 0 ? (chgAh / chgHours).toFixed(1) : "0.0";
-  const avgChgV = chgAh > 0 ? (chgWh / chgAh).toFixed(1) : "0.0";
+  const trapDisWh = Math.round(disWh);
+  const trapChgWh = Math.round(chgWh);
 
-  const netWh = Math.round(chgWh - disWh);
-  const netAh = (chgAh - disAh).toFixed(1);
+  // Physical Consistency Guards:
+  // Reject hardware accumulator if oscillating (> 3 resets), contradicted by 0 active minutes/peak,
+  // exceeding physical Peak Power * Duration limit, or diverging wildly from current integration.
+  const isHwDisValid =
+    hwDis.valid &&
+    hwDis.total > 0 &&
+    disMinutes > 0 &&
+    peakDisW > 0 &&
+    (disHours <= 0 || hwDis.total / disHours <= peakDisW * 1.15) &&
+    hwDis.total <= Math.max(trapDisWh * 2.5, trapDisWh + 500);
 
-  const whEfficiency = chgWh > 0 ? Math.min(100, Math.round((disWh / chgWh) * 100)) : 0;
-  const ahEfficiency = chgAh > 0 ? Math.min(100, Math.round((disAh / chgAh) * 100)) : 0;
+  const isHwChgValid =
+    hwChg.valid &&
+    hwChg.total > 0 &&
+    chgMinutes > 0 &&
+    peakChgW > 0 &&
+    (chgHours <= 0 || hwChg.total / chgHours <= peakChgW * 1.15) &&
+    hwChg.total <= Math.max(trapChgWh * 2.5, trapChgWh + 500);
+
+  const finalDisWh = isHwDisValid ? hwDis.total : trapDisWh;
+  const finalChgWh = isHwChgValid ? hwChg.total : trapChgWh;
+
+  const avgDisVNum = disAh > 0 ? disWh / disAh : 0;
+  const avgDisV = avgDisVNum.toFixed(1);
+  const finalDisAh = avgDisVNum > 0 && finalDisWh > 0 ? Number((finalDisWh / avgDisVNum).toFixed(1)) : Number(disAh.toFixed(1));
+  const avgDisW = disHours > 0 ? Math.round(finalDisWh / disHours) : 0;
+  const avgDisA = disHours > 0 ? (finalDisAh / disHours).toFixed(1) : "0.0";
+
+  const avgChgVNum = chgAh > 0 ? chgWh / chgAh : 0;
+  const avgChgV = avgChgVNum.toFixed(1);
+  const finalChgAh = avgChgVNum > 0 && finalChgWh > 0 ? Number((finalChgWh / avgChgVNum).toFixed(1)) : Number(chgAh.toFixed(1));
+  const avgChgW = chgHours > 0 ? Math.round(finalChgWh / chgHours) : 0;
+  const avgChgA = chgHours > 0 ? (finalChgAh / chgHours).toFixed(1) : "0.0";
+
+  const netWh = Math.round(finalChgWh - finalDisWh);
+  const netAh = (finalChgAh - finalDisAh).toFixed(1);
+
+  const whEfficiency = finalChgWh > 0 ? Math.min(100, Math.round((finalDisWh / finalChgWh) * 100)) : 0;
+  const ahEfficiency = finalChgAh > 0 ? Math.min(100, Math.round((finalDisAh / finalChgAh) * 100)) : 0;
 
   const socStart = Number(filtered[0]?.batSoc ?? 0);
   const socEnd = Number(filtered[filtered.length - 1]?.batSoc ?? 0);
@@ -767,22 +979,26 @@ function calculateBatteryStats(records, fromStr = "00:00", toStr = "23:59") {
 
   return {
     count: filtered.length,
-    disWh: Math.round(disWh),
-    disAh: Number(disAh.toFixed(1)),
+    disWh: finalDisWh,
+    disAh: finalDisAh,
+    hwDisWh: hwDis.total,
+    trapDisWh,
     peakDisW: Math.round(peakDisW),
     peakDisA: Number(peakDisA.toFixed(1)),
     avgDisW,
     avgDisA,
     avgDisV,
-    disMinutes,
-    chgWh: Math.round(chgWh),
-    chgAh: Number(chgAh.toFixed(1)),
+    disMinutes: Math.round(disMinutes),
+    chgWh: finalChgWh,
+    chgAh: finalChgAh,
+    hwChgWh: hwChg.total,
+    trapChgWh,
     peakChgW: Math.round(peakChgW),
     peakChgA: Number(peakChgA.toFixed(1)),
     avgChgW,
     avgChgA,
     avgChgV,
-    chgMinutes,
+    chgMinutes: Math.round(chgMinutes),
     netWh,
     netAh,
     whEfficiency,
@@ -790,8 +1006,6 @@ function calculateBatteryStats(records, fromStr = "00:00", toStr = "23:59") {
     socStart,
     socEnd,
     socDelta,
-    loadKwh: (loadWh / 1000).toFixed(2),
-    pvKwh: (pvWh / 1000).toFixed(2),
   };
 }
 
@@ -909,8 +1123,9 @@ function renderStatsTab(records, selectedDate) {
   if (!stats) return;
 
   const formatDur = (mins) => {
-    const h = Math.floor(mins / 60);
-    const m = mins % 60;
+    const totalMins = Math.round(Number(mins) || 0);
+    const h = Math.floor(totalMins / 60);
+    const m = totalMins % 60;
     return h > 0
       ? `${h} ${t("unitHours")} ${m} ${t("unitMin")}`
       : `${m} ${t("unitMin")}`;
@@ -956,43 +1171,6 @@ function renderStatsTab(records, selectedDate) {
   const chgDurEl = document.getElementById("statsChgDuration");
   if (chgDurEl) chgDurEl.textContent = formatDur(stats.chgMinutes);
 
-  // Balance & Efficiency
-  const netValEl = document.getElementById("statsNetVal");
-  if (netValEl) {
-    const sign = stats.netWh >= 0 ? "+" : "";
-    netValEl.textContent = `${sign}${stats.netWh.toLocaleString()} ${t("unitWh")}`;
-    netValEl.className =
-      stats.netWh >= 0 ? "card-value val-green" : "card-value val-amber";
-  }
-  const netAhEl = document.getElementById("statsNetAhVal");
-  if (netAhEl) {
-    const sign = stats.netAh >= 0 ? "+" : "";
-    netAhEl.textContent = `⚡ ${sign}${stats.netAh} ${t("unitAh")}`;
-  }
-  const effEl = document.getElementById("statsEffDetails");
-  if (effEl) {
-    effEl.textContent = `${t("statsWhEfficiency")}: ${stats.whEfficiency}% · ${t("statsAhEfficiency")}: ${stats.ahEfficiency}%`;
-  }
-  const socDeltaEl = document.getElementById("statsSocDeltaDetails");
-  if (socDeltaEl) {
-    const sign = stats.socDelta >= 0 ? "+" : "";
-    socDeltaEl.textContent = `${t("statsSocChange")}: ${stats.socStart}% ➔ ${stats.socEnd}% (${sign}${stats.socDelta}%)`;
-  }
-
-  // Energy Flow
-  const loadKwhEl = document.getElementById("statsLoadKwhVal");
-  if (loadKwhEl) {
-    loadKwhEl.textContent = `${t("statsLoadInvTitle")}: ${stats.loadKwh} ${t("unitKwh")}`;
-  }
-  const flowDetailsEl = document.getElementById("statsGridPvDetails");
-  if (flowDetailsEl) {
-    flowDetailsEl.textContent = `☀️ ${t("statsSolarGen")}: ${stats.pvKwh} ${t("unitKwh")}`;
-  }
-  const pointsEl = document.getElementById("statsPointsDetails");
-  if (pointsEl) {
-    pointsEl.textContent = t("statsRecordsCount", { n: stats.count });
-  }
-
   // Interval Badge
   const intervalBadge = document.getElementById("statsIntervalBadge");
   if (intervalBadge) {
@@ -1035,20 +1213,20 @@ async function loadDashboard() {
     updateDateControls(selectedDate);
 
     if (selectedDate === todayStr) {
-      // 1. Current Day: row[0] is the live telemetry reading at this exact moment
+      // 1. Current Day: rawRecords[0] is the most recent telemetry ingested by the server
       const dat = await SmartESS.API.fetchFullDayData(dev, todayStr);
       if (!dat) return;
-      const records = SmartESS.API.parseRows(dat);
+      const rawRecords = SmartESS.API.parseRows(dat);
 
-      if (records.length === 0) {
+      if (rawRecords.length === 0) {
         showError(t("noDataForDate", { date: todayStr }));
         SmartESS.Charts.destroyCharts();
         renderRawTable([]);
         return;
       }
 
-      renderKPI(records[0], dev);
-      fullChronoRecords = [...records].reverse();
+      renderKPI(rawRecords[0], dev);
+      fullChronoRecords = normalizeDayRecords(rawRecords);
       applyRangeAndRender();
     } else {
       // 2. History Mode (past date chosen):
@@ -1063,16 +1241,16 @@ async function loadDashboard() {
       // Fetch historical data for the chosen date for charts, infographic ribbon, and table
       const dat = await SmartESS.API.fetchFullDayData(dev, selectedDate);
       if (!dat) return;
-      const records = SmartESS.API.parseRows(dat);
+      const rawRecords = SmartESS.API.parseRows(dat);
 
-      if (records.length === 0) {
+      if (rawRecords.length === 0) {
         showError(t("noDataForDate", { date: selectedDate }));
         SmartESS.Charts.destroyCharts();
         renderRawTable([]);
         return;
       }
 
-      fullChronoRecords = [...records].reverse();
+      fullChronoRecords = normalizeDayRecords(rawRecords);
       applyRangeAndRender();
     }
   } catch (err) {

@@ -2,40 +2,6 @@
  * SmartESS Web - Chart.js Visualizations & Touch/Mouse Scrubbers
  */
 (function (global) {
-  // Configure Hammer.js for 2-finger pinch & 2-finger pan on touch devices:
-  // - 2 fingers: pinch-to-zoom in/out & slide (pan) the zoomed graph along X axis.
-  // - 1 finger: strictly reserved for moving the white crosshair line without moving the graph.
-  if (typeof Hammer !== "undefined" && Hammer.Pan && Hammer.Pan.prototype) {
-    const origPanAttrTest = Hammer.Pan.prototype.attrTest;
-    Hammer.Pan.prototype.attrTest = function (input) {
-      const isTouch =
-        input.pointerType === "touch" ||
-        (input.srcEvent && input.srcEvent.type && input.srcEvent.type.startsWith("touch"));
-      if (isTouch) {
-        if (!input.pointers || input.pointers.length !== 2) {
-          return false;
-        }
-        const stateBegan = Hammer.STATE_BEGAN || 2;
-        return (this.state & stateBegan) || (!(this.state & stateBegan) && this.directionTest(input));
-      }
-      return origPanAttrTest.call(this, input);
-    };
-
-    if (Hammer.Manager && Hammer.Manager.prototype) {
-      const origAdd = Hammer.Manager.prototype.add;
-      Hammer.Manager.prototype.add = function (recognizer) {
-        const res = origAdd.apply(this, arguments);
-        const pinch = this.get("pinch");
-        const pan = this.get("pan");
-        if (pinch && pan) {
-          pinch.recognizeWith(pan);
-          pan.recognizeWith(pinch);
-        }
-        return res;
-      };
-    }
-  }
-
   let chartInstances = [];
   let scrubberCleanups = [];
   let currentLoadBatUnit = "w"; // "w" or "a"
@@ -345,20 +311,7 @@
             },
           },
           pan: {
-            enabled: true,
-            mode: "x",
-            threshold: 8,
-            onPanStart({ event }) {
-              if (
-                event &&
-                (event.pointerType === "touch" ||
-                  (event.srcEvent && event.srcEvent.type && event.srcEvent.type.startsWith("touch")))
-              ) {
-                if (!event.pointers || event.pointers.length !== 2) {
-                  return false;
-                }
-              }
-            },
+            enabled: false,
           },
           zoom: {
             wheel: { enabled: true, speed: 0.1 },
