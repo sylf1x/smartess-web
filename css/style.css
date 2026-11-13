@@ -746,10 +746,19 @@ input[type="date"].date-input-overlay::-webkit-calendar-picker-indicator {
 }
 
 /* Chart Zoom Controls */
+.chart-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-left: auto;
+}
+
 .chart-zoom-controls {
   display: inline-flex;
   align-items: center;
   gap: 5px;
+  margin-left: auto;
 }
 
 .btn-zoom-step {
@@ -827,8 +836,10 @@ input[type="date"].date-input-overlay::-webkit-calendar-picker-indicator {
 
 .infographic-stats {
   display: flex;
+  align-items: center;
   flex-wrap: wrap;
   gap: 8px;
+  margin-left: auto;
 }
 
 .stat-pill {
@@ -1477,8 +1488,13 @@ dialog::backdrop {
   .infographic-stats {
     width: 100%;
     display: flex;
+    align-items: center;
     flex-wrap: wrap;
     gap: 6px;
+  }
+
+  .chart-header-actions {
+    width: 100%;
   }
 
   .stat-pill {
