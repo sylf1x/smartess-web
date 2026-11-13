@@ -821,9 +821,14 @@ input[type="date"].date-input-overlay::-webkit-calendar-picker-indicator {
   color: #fca5a5;
 }
 
+.pill-muted {
+  border-color: rgba(148, 163, 184, 0.35);
+  color: #cbd5e1;
+}
+
 /* 24-Hour Timeline Ribbon */
 .timeline-container {
-  margin: 14px 0 16px 0;
+  margin: 14px 0 0 0;
 }
 
 .timeline-ribbon {
@@ -858,6 +863,21 @@ input[type="date"].date-input-overlay::-webkit-calendar-picker-indicator {
 
 .seg-offline {
   background: #ef4444;
+}
+
+.seg-nodata,
+.seg-nodata-dot {
+  background: repeating-linear-gradient(
+    45deg,
+    rgba(148, 163, 184, 0.32) 0 4px,
+    rgba(15, 23, 42, 0.82) 4px 8px
+  );
+  border-left: 1px dashed rgba(148, 163, 184, 0.45);
+  border-right: 1px dashed rgba(148, 163, 184, 0.45);
+}
+
+.seg-nodata-dot {
+  border: 1px solid rgba(148, 163, 184, 0.55);
 }
 
 .timeline-ticks {

@@ -3,7 +3,6 @@
  */
 (function (global) {
   let fullChronoRecords = [];
-let activeRange = "all";
 let lastLiveRecord = null;
 let currentDev = null;
 
@@ -27,8 +26,6 @@ const logoutBtn = document.getElementById("logoutBtn");
 const closeModal = document.getElementById("closeModal");
 const accountBtn = document.getElementById("accountBtn");
 const refreshBtn = document.getElementById("refreshBtn");
-const resetZoomBtn = document.getElementById("resetZoomBtn");
-const rangeButtons = document.getElementById("rangeButtons");
 
 // Tab Elements
 const tabButtons = document.querySelectorAll(".tab-btn");
@@ -65,6 +62,7 @@ const loadBadge = document.getElementById("loadBadge");
 // Grid Infographic Elements
 const statGridOnline = document.getElementById("statGridOnline");
 const statGridOffline = document.getElementById("statGridOffline");
+const statGridNoData = document.getElementById("statGridNoData");
 const statGridVoltRange = document.getElementById("statGridVoltRange");
 const statGridBatRange = document.getElementById("statGridBatRange");
 const gridTimelineRibbon = document.getElementById("gridTimelineRibbon");
@@ -201,21 +199,6 @@ function setDate(dateStr) {
   statsTimeFrom = "00:00";
   statsTimeTo = "23:59";
   statsRange = "all";
-
-  const dFromInp = document.getElementById("statsDateFrom");
-  const dToInp = document.getElementById("statsDateTo");
-  const tFromInp = document.getElementById("statsTimeFrom");
-  const tToInp = document.getElementById("statsTimeTo");
-  if (dFromInp) {
-    dFromInp.value = dateStr;
-    dFromInp.max = todayStr;
-  }
-  if (dToInp) {
-    dToInp.value = dateStr;
-    dToInp.max = todayStr;
-  }
-  if (tFromInp) tFromInp.value = "00:00";
-  if (tToInp) tToInp.value = "23:59";
 
   document.querySelectorAll("#statsPresetButtons .range-btn").forEach((b) => {
     b.classList.toggle("active", b.dataset.statsRange === "all");
@@ -515,13 +498,22 @@ function renderKPI(latest, dev) {
 }
 
 /**
- * Builds the 24-Hour Grid Availability Ribbon & Statistics
+ * Builds the 24-Hour Grid Availability Ribbon & Statistics (including missing-data gap bands > 15m)
  */
 function renderGridInfographic(records) {
   if (!records || records.length === 0) return;
 
+  const GAP_THRESHOLD_MIN = 15;
+  const formatMinHHMM = (mins) => {
+    const clamped = Math.max(0, Math.min(1440, Math.round(mins)));
+    const hh = String(Math.floor(clamped / 60)).padStart(2, "0");
+    const mm = String(clamped % 60).padStart(2, "0");
+    return `${hh}:${mm}`;
+  };
+
   let totalOnlineMinutes = 0;
   let totalOfflineMinutes = 0;
+  let totalNoDataMinutes = 0;
   let outageIncidents = 0;
   let inOutage = false;
 
@@ -530,11 +522,45 @@ function renderGridInfographic(records) {
 
   const segments = [];
   let currentSegment = null;
+  let prevMinute = null;
 
   for (let i = 0; i < records.length; i++) {
     const r = records[i];
     const volt = Number(r.gridVolt || 0);
     const minute = getMinuteOfDay(r.timestamp);
+    const curTime = r.timestamp.slice(11, 16);
+
+    if (prevMinute === null) {
+      // Mark missing data before the first reading if day starts late
+      if (minute > GAP_THRESHOLD_MIN) {
+        segments.push({
+          state: "nodata",
+          startMinute: 0,
+          endMinute: minute,
+          startTime: "00:00",
+          endTime: curTime,
+        });
+        totalNoDataMinutes += minute;
+      }
+    } else if (minute - prevMinute > GAP_THRESHOLD_MIN) {
+      // Large gap detected: close prior segment cleanly instead of stretching across missing hours
+      const gapStartMin = Math.min(minute, prevMinute + 5);
+      if (currentSegment) {
+        currentSegment.endMinute = gapStartMin;
+        currentSegment.endTime = formatMinHHMM(gapStartMin);
+        segments.push(currentSegment);
+        currentSegment = null;
+      }
+      segments.push({
+        state: "nodata",
+        startMinute: gapStartMin,
+        endMinute: minute,
+        startTime: formatMinHHMM(gapStartMin),
+        endTime: curTime,
+      });
+      totalNoDataMinutes += minute - gapStartMin;
+      inOutage = false;
+    }
 
     let state = "online";
     if (volt < 50) {
@@ -561,23 +587,43 @@ function renderGridInfographic(records) {
     if (!currentSegment || currentSegment.state !== state) {
       if (currentSegment) {
         currentSegment.endMinute = minute;
+        currentSegment.endTime = curTime;
         segments.push(currentSegment);
       }
       currentSegment = {
         state,
         startMinute: minute,
-        endMinute: minute + 5,
-        startTime: r.timestamp.slice(11, 16),
-        endTime: r.timestamp.slice(11, 16),
+        endMinute: Math.min(1440, minute + 5),
+        startTime: curTime,
+        endTime: formatMinHHMM(Math.min(1440, minute + 5)),
       };
     } else {
-      currentSegment.endMinute = minute + 5;
-      currentSegment.endTime = r.timestamp.slice(11, 16);
+      currentSegment.endMinute = Math.min(1440, minute + 5);
+      currentSegment.endTime = formatMinHHMM(Math.min(1440, minute + 5));
     }
+
+    prevMinute = minute;
   }
 
   if (currentSegment) {
     segments.push(currentSegment);
+  }
+
+  // Mark missing trailing data on completed past dates (not Today, which stops at current time)
+  const recordDate = String(records[0].timestamp || "").slice(0, 10);
+  const todayStr = new Date().toLocaleDateString("en-CA");
+  if (prevMinute !== null && recordDate && recordDate < todayStr) {
+    const lastEnd = Math.min(1440, prevMinute + 5);
+    if (1440 - lastEnd > GAP_THRESHOLD_MIN) {
+      segments.push({
+        state: "nodata",
+        startMinute: lastEnd,
+        endMinute: 1440,
+        startTime: formatMinHHMM(lastEnd),
+        endTime: "24:00",
+      });
+      totalNoDataMinutes += 1440 - lastEnd;
+    }
   }
 
   // Update summary stats
@@ -591,6 +637,16 @@ function renderGridInfographic(records) {
       val: formatDuration(totalOfflineMinutes),
       n: outageIncidents,
     });
+  }
+  if (statGridNoData) {
+    if (totalNoDataMinutes > 0) {
+      statGridNoData.style.display = "";
+      statGridNoData.textContent = t("statGridNoData", {
+        val: formatDuration(totalNoDataMinutes),
+      });
+    } else {
+      statGridNoData.style.display = "none";
+    }
   }
   if (statGridVoltRange) {
     statGridVoltRange.textContent =
@@ -632,7 +688,9 @@ function renderGridInfographic(records) {
           ? t("statusOnline")
           : seg.state === "warning"
             ? t("statusWarning")
-            : t("statusOffline");
+            : seg.state === "nodata"
+              ? t("statusNoData")
+              : t("statusOffline");
 
       el.title = `${seg.startTime} – ${seg.endTime} (${formatDuration(segDuration)}): ${statusDesc}`;
       gridTimelineRibbon.appendChild(el);
@@ -669,21 +727,13 @@ function renderRawTable(descRecords) {
 }
 
 function applyRangeAndRender() {
-  let filtered = fullChronoRecords;
-  if (activeRange !== "all") {
-    const [startH, endH] = activeRange.split("-").map(Number);
-    filtered = fullChronoRecords.filter((r) => {
-      const hour = Number(r.timestamp.slice(11, 13));
-      return hour >= startH && hour < endH;
-    });
-  }
-  SmartESS.Charts.renderAllCharts(filtered);
+  SmartESS.Charts.renderAllCharts(fullChronoRecords);
   renderGridInfographic(fullChronoRecords);
   renderStatsTab(
     fullChronoRecords,
     datePicker ? datePicker.value : new Date().toLocaleDateString("en-CA"),
   );
-  renderRawTable([...filtered].reverse());
+  renderRawTable([...fullChronoRecords].reverse());
 }
 
 let statsDateFrom = new Date().toLocaleDateString("en-CA");
@@ -693,6 +743,402 @@ let statsTimeTo = "23:59";
 let statsRange = "all";
 let currentStatsUnit = "wh";
 let currentStatsRecords = [];
+let currentStatsAggregate = null;
+const SHARED_CACHE_KEY = "smartess_shared_cache_v1";
+const MAX_CACHE_DAYS = 30;
+const MAX_RANGE_DAYS = 31;
+
+function getDevCacheId(dev) {
+  if (!dev) return "default";
+  return `${dev.pn || ""}_${dev.sn || ""}_${dev.devaddr || ""}`;
+}
+
+function loadSharedCache() {
+  try {
+    const raw = localStorage.getItem(SHARED_CACHE_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveSharedCache(cache) {
+  // Remove deprecated multi-key caches if present so full quota is dedicated to the shared cache
+  try {
+    localStorage.removeItem("smartess_day_cache_v1");
+    localStorage.removeItem("smartess_raw_day_cache_v1");
+  } catch {}
+
+  let entries = Object.entries(cache);
+  if (entries.length > MAX_CACHE_DAYS) {
+    entries.sort((a, b) => (a[1]?.cachedAt || 0) - (b[1]?.cachedAt || 0));
+    cache = Object.fromEntries(entries.slice(entries.length - MAX_CACHE_DAYS));
+  }
+  try {
+    localStorage.setItem(SHARED_CACHE_KEY, JSON.stringify(cache));
+  } catch {
+    // Evict oldest days if device storage quota is tight
+    let sorted = Object.entries(cache).sort(
+      (a, b) => (a[1]?.cachedAt || 0) - (b[1]?.cachedAt || 0)
+    );
+    while (sorted.length > 1) {
+      sorted = sorted.slice(Math.max(1, Math.floor(sorted.length / 2)));
+      try {
+        localStorage.setItem(SHARED_CACHE_KEY, JSON.stringify(Object.fromEntries(sorted)));
+        return;
+      } catch {}
+    }
+  }
+}
+
+/**
+ * Packs a day's telemetry rows into compact tuples (~18–22 KB/day instead of ~95 KB)
+ * so 30 complete days of both Statistics digests and full raw rows fit comfortably
+ * within ~600 KB of standard localStorage.
+ */
+function packDayRecords(records) {
+  const modes = [];
+  const models = [];
+  const rows = records.map((r) => {
+    const mStr = r.mode || "online";
+    let mIdx = modes.indexOf(mStr);
+    if (mIdx === -1) {
+      mIdx = modes.length;
+      modes.push(mStr);
+    }
+    const mdl = r.model || "";
+    let mdlIdx = models.indexOf(mdl);
+    if (mdlIdx === -1) {
+      mdlIdx = models.length;
+      models.push(mdl);
+    }
+    return [
+      String(r.timestamp || "").slice(11),
+      mIdx,
+      r.batVolt ?? 0,
+      r.batCurr ?? 0,
+      r.batSoc ?? 0,
+      r.gridVolt ?? 0,
+      r.gridCurr ?? 0,
+      r.gridFreq ?? 0,
+      r.pvVolt ?? 0,
+      r.pvCurr ?? 0,
+      r.pvPower ?? 0,
+      r.outVolt ?? 0,
+      r.invCurr ?? 0,
+      r.loadCurr ?? 0,
+      r.loadActive ?? 0,
+      r.loadVA ?? 0,
+      r.tempPv ?? 0,
+      r.tempB ?? 0,
+      r.tempInv ?? 0,
+      r.dayPvKwh ?? 0,
+      r.dayGridKwh ?? 0,
+      mdlIdx,
+      r.dayBatDisWh ?? 0,
+      r.dayBatChgWh ?? 0,
+    ];
+  });
+  return { modes, models, rows };
+}
+
+function unpackDayRecords(dateStr, packed) {
+  if (!packed || !Array.isArray(packed.rows)) return [];
+  const modes = packed.modes || [];
+  const models = packed.models || [];
+  return packed.rows.map((row) => ({
+    timestamp: `${dateStr} ${row[0]}`,
+    mode: modes[row[1]] || "online",
+    batVolt: row[2],
+    batCurr: row[3],
+    batSoc: row[4],
+    gridVolt: row[5],
+    gridCurr: row[6],
+    gridFreq: row[7],
+    pvVolt: row[8],
+    pvCurr: row[9],
+    pvPower: row[10],
+    outVolt: row[11],
+    invCurr: row[12],
+    loadCurr: row[13],
+    loadActive: row[14],
+    loadVA: row[15],
+    tempPv: row[16],
+    tempB: row[17],
+    tempInv: row[18],
+    dayPvKwh: row[19],
+    dayGridKwh: row[20],
+    model: models[row[21]] || "",
+    dayBatDisWh: row[22],
+    dayBatChgWh: row[23],
+  }));
+}
+
+function getCachedRawDay(dev, dateStr) {
+  const todayStr = new Date().toLocaleDateString("en-CA");
+  if (!dev || !dateStr || dateStr >= todayStr) return null;
+  const cache = loadSharedCache();
+  const key = `${getDevCacheId(dev)}_${dateStr}`;
+  const entry = cache[key];
+  if (entry && entry.p && Array.isArray(entry.p.rows) && entry.p.rows.length > 0) {
+    entry.cachedAt = Date.now();
+    saveSharedCache(cache);
+    return unpackDayRecords(dateStr, entry.p);
+  }
+  return null;
+}
+
+function getCachedDayDigest(dev, dateStr) {
+  const todayStr = new Date().toLocaleDateString("en-CA");
+  if (!dev || !dateStr || dateStr >= todayStr) return null;
+  const cache = loadSharedCache();
+  const key = `${getDevCacheId(dev)}_${dateStr}`;
+  const entry = cache[key];
+  return entry && entry.d && entry.d.summary && entry.d.hourly ? entry.d : null;
+}
+
+/**
+ * Shared localStorage past-day writer (max 30 days LRU): stores BOTH the Statistics
+ * digest and compact packed 5-minute rows under one entry so any day fetched in
+ * Statistics is immediately available on Overview/Charts/Table and vice versa.
+ */
+function cachePastDay(dev, dateStr, records) {
+  const todayStr = new Date().toLocaleDateString("en-CA");
+  if (!dev || !dateStr || dateStr >= todayStr || !records || records.length === 0) return;
+  const cache = loadSharedCache();
+  const key = `${getDevCacheId(dev)}_${dateStr}`;
+  const existing = cache[key];
+  if (existing && existing.d?.summary?.count >= records.length && existing.p?.rows?.length >= records.length) {
+    existing.cachedAt = Date.now();
+    saveSharedCache(cache);
+    return;
+  }
+  const now = Date.now();
+  cache[key] = {
+    cachedAt: now,
+    d: buildDayDigest(dateStr, records),
+    p: packDayRecords(records),
+  };
+  saveSharedCache(cache);
+}
+
+function enumerateDates(dateFrom, dateTo, maxDays = MAX_RANGE_DAYS) {
+  const cur = new Date(dateFrom + "T00:00:00");
+  const end = new Date(dateTo + "T00:00:00");
+  const dates = [];
+  while (cur <= end) {
+    dates.push(cur.toLocaleDateString("en-CA"));
+    cur.setDate(cur.getDate() + 1);
+    if (dates.length >= maxDays) break;
+  }
+  return dates;
+}
+
+/**
+ * Computes a compact (~700 byte) immutable daily digest containing summary totals
+ * and 24 hourly buckets for both Wh and Ah charts.
+ */
+function buildDayDigest(dateStr, records) {
+  const summary = calculateBatteryStats(records, "00:00", "23:59") || {
+    count: 0, disWh: 0, disAh: 0, peakDisW: 0, peakDisA: 0, avgDisV: "0.0", disMinutes: 0,
+    chgWh: 0, chgAh: 0, peakChgW: 0, peakChgA: 0, avgChgV: "0.0", chgMinutes: 0,
+  };
+
+  const chgWh = new Array(24).fill(0);
+  const disWh = new Array(24).fill(0);
+  const chgAh = new Array(24).fill(0);
+  const disAh = new Array(24).fill(0);
+  const loadWh = new Array(24).fill(0);
+  const pvWh = new Array(24).fill(0);
+
+  const dt = 5 / 60;
+  for (const r of records || []) {
+    const h = Number(String(r.timestamp || "").slice(11, 13));
+    if (h < 0 || h > 23) continue;
+    const v = Number(r.batVolt || 0);
+    const a = Number(r.batCurr || 0);
+    const l = Number(r.loadActive || 0);
+    const pPv = Math.max(0, Number(r.pvPower || 0));
+
+    loadWh[h] += l * dt;
+    pvWh[h] += pPv * dt;
+
+    if (a > 0) {
+      chgWh[h] += v * a * dt;
+      chgAh[h] += a * dt;
+    } else if (a < 0) {
+      disWh[h] += v * Math.abs(a) * dt;
+      disAh[h] += Math.abs(a) * dt;
+    }
+  }
+
+  return {
+    date: dateStr,
+    cachedAt: Date.now(),
+    summary: {
+      count: summary.count,
+      disWh: summary.disWh,
+      disAh: summary.disAh,
+      peakDisW: summary.peakDisW,
+      peakDisA: summary.peakDisA,
+      disMinutes: summary.disMinutes,
+      chgWh: summary.chgWh,
+      chgAh: summary.chgAh,
+      peakChgW: summary.peakChgW,
+      peakChgA: summary.peakChgA,
+      chgMinutes: summary.chgMinutes,
+    },
+    hourly: {
+      chgWh: chgWh.map((x) => Math.round(x)),
+      disWh: disWh.map((x) => Math.round(x)),
+      chgAh: chgAh.map((x) => Math.round(x * 10) / 10),
+      disAh: disAh.map((x) => Math.round(x * 10) / 10),
+      loadWh: loadWh.map((x) => Math.round(x)),
+      pvWh: pvWh.map((x) => Math.round(x)),
+    },
+  };
+}
+
+/**
+ * Fetches/reads cached past days across multi-day ranges (up to 30 days) using shared
+ * localStorage storage and polite 4-day batching for misses.
+ */
+async function getAggregatedStatsRange(dev, dateFrom, dateTo, onProgress) {
+  if (!dev) return null;
+  const todayStr = new Date().toLocaleDateString("en-CA");
+  const selectedTopDate = datePicker ? datePicker.value : todayStr;
+  const dates = enumerateDates(dateFrom, dateTo, MAX_RANGE_DAYS);
+  const digestsMap = new Map();
+  const toFetch = [];
+
+  for (const d of dates) {
+    if (d === selectedTopDate && fullChronoRecords.length > 0) {
+      const digest = buildDayDigest(d, fullChronoRecords);
+      cachePastDay(dev, d, fullChronoRecords);
+      digestsMap.set(d, digest);
+    } else {
+      const cached = getCachedDayDigest(dev, d);
+      if (cached) {
+        digestsMap.set(d, cached);
+      } else {
+        toFetch.push(d);
+      }
+    }
+  }
+
+  let done = dates.length - toFetch.length;
+  if (onProgress && toFetch.length > 0) {
+    onProgress(done, dates.length);
+  }
+
+  const BATCH_SIZE = 4;
+  for (let i = 0; i < toFetch.length; i += BATCH_SIZE) {
+    const batch = toFetch.slice(i, i + BATCH_SIZE);
+    await Promise.all(
+      batch.map(async (d) => {
+        try {
+          const dat = await SmartESS.API.fetchFullDayData(dev, d);
+          const records = dat ? normalizeDayRecords(SmartESS.API.parseRows(dat)) : [];
+          const digest = buildDayDigest(d, records);
+          if (d < todayStr && records.length > 0) {
+            cachePastDay(dev, d, records);
+          }
+          digestsMap.set(d, digest);
+        } catch {
+          digestsMap.set(d, buildDayDigest(d, []));
+        } finally {
+          done++;
+          if (onProgress) onProgress(done, dates.length);
+        }
+      })
+    );
+  }
+
+  const digests = dates.map((d) => digestsMap.get(d) || buildDayDigest(d, []));
+
+  let count = 0, disWh = 0, disAh = 0, peakDisW = 0, peakDisA = 0, disMinutes = 0;
+  let chgWh = 0, chgAh = 0, peakChgW = 0, peakChgA = 0, chgMinutes = 0;
+  const hourly = {
+    isAggregated: true,
+    dayCount: 0,
+    chargedWh: new Array(24).fill(0),
+    dischargedWh: new Array(24).fill(0),
+    chargedAh: new Array(24).fill(0),
+    dischargedAh: new Array(24).fill(0),
+    loadWh: new Array(24).fill(0),
+    pvWh: new Array(24).fill(0),
+  };
+
+  let activeDays = 0;
+  const dailySeries = [];
+
+  for (const item of digests) {
+    const s = item.summary;
+    const h = item.hourly;
+    count += s.count;
+    disWh += s.disWh;
+    disAh += s.disAh;
+    if (s.peakDisW > peakDisW) peakDisW = s.peakDisW;
+    if (s.peakDisA > peakDisA) peakDisA = s.peakDisA;
+    disMinutes += s.disMinutes;
+
+    chgWh += s.chgWh;
+    chgAh += s.chgAh;
+    if (s.peakChgW > peakChgW) peakChgW = s.peakChgW;
+    if (s.peakChgA > peakChgA) peakChgA = s.peakChgA;
+    chgMinutes += s.chgMinutes;
+
+    if (s.count > 0) activeDays++;
+
+    for (let hr = 0; hr < 24; hr++) {
+      hourly.chargedWh[hr] += h.chgWh[hr] || 0;
+      hourly.dischargedWh[hr] += h.disWh[hr] || 0;
+      hourly.chargedAh[hr] += h.chgAh[hr] || 0;
+      hourly.dischargedAh[hr] += h.disAh[hr] || 0;
+      hourly.loadWh[hr] += h.loadWh[hr] || 0;
+      hourly.pvWh[hr] += h.pvWh[hr] || 0;
+    }
+
+    dailySeries.push({
+      date: item.date,
+      disWh: s.disWh,
+      disAh: s.disAh,
+      chgWh: s.chgWh,
+      chgAh: s.chgAh,
+    });
+  }
+
+  hourly.dayCount = Math.max(1, activeDays || digests.length);
+
+  const disHours = disMinutes / 60;
+  const chgHours = chgMinutes / 60;
+  const avgDisV = disAh > 0 ? (disWh / disAh).toFixed(1) : "0.0";
+  const avgChgV = chgAh > 0 ? (chgWh / chgAh).toFixed(1) : "0.0";
+
+  return {
+    stats: {
+      count,
+      disWh: Math.round(disWh),
+      disAh: Number(disAh.toFixed(1)),
+      peakDisW: Math.round(peakDisW),
+      peakDisA: Number(peakDisA.toFixed(1)),
+      avgDisW: disHours > 0 ? Math.round(disWh / disHours) : 0,
+      avgDisA: disHours > 0 ? (disAh / disHours).toFixed(1) : "0.0",
+      avgDisV,
+      disMinutes: Math.round(disMinutes),
+      chgWh: Math.round(chgWh),
+      chgAh: Number(chgAh.toFixed(1)),
+      peakChgW: Math.round(peakChgW),
+      peakChgA: Number(peakChgA.toFixed(1)),
+      avgChgW: chgHours > 0 ? Math.round(chgWh / chgHours) : 0,
+      avgChgA: chgHours > 0 ? (chgAh / chgHours).toFixed(1) : "0.0",
+      avgChgV,
+      chgMinutes: Math.round(chgMinutes),
+    },
+    dailySeries,
+    hourly,
+  };
+}
 
 /**
  * Normalizes a single day's API rows (returned newest-first by server ingestion order)
@@ -720,13 +1166,14 @@ function normalizeDayRecords(rows) {
 
 /**
  * Computes monotonic cumulative energy from a hardware accumulator register,
- * ignoring transient zero dropouts, tracking resets on the same calendar day,
+ * treating the first reading of the interval as a 0 baseline, ignoring
+ * transient zero dropouts, tracking resets on the same calendar day,
  * and flagging oscillating/corrupted sequences (more than 3 resets in a day).
  */
-function calculateAccumulatorDelta(records, fieldName, isStartOfDay = false) {
+function calculateAccumulatorDelta(records, fieldName) {
   if (!records || records.length === 0) return { total: 0, resets: 0, valid: false };
   const firstVal = Number(records[0][fieldName] || 0);
-  let total = isStartOfDay && !isNaN(firstVal) && firstVal > 0 ? firstVal : 0;
+  let total = 0;
   let prev = !isNaN(firstVal) && firstVal >= 0 ? firstVal : 0;
   let prevDate = String(records[0].timestamp || "").slice(0, 10);
   let resets = 0;
@@ -767,43 +1214,9 @@ function calculateAccumulatorDelta(records, fieldName, isStartOfDay = false) {
     }
     prev = val;
   }
-  return { total: Math.round(total), resets, valid: resets <= 3 };
-}
-
-async function getRecordsForDateRange(dev, dateFrom, dateTo) {
-  if (!dev) return [];
-  const selectedDate = datePicker ? datePicker.value : new Date().toLocaleDateString("en-CA");
-  if (dateFrom === dateTo) {
-    if (fullChronoRecords && fullChronoRecords.length > 0 && selectedDate === dateFrom) {
-      return fullChronoRecords;
-    }
-    const dat = await SmartESS.API.fetchFullDayData(dev, dateFrom);
-    if (!dat) return [];
-    return normalizeDayRecords(SmartESS.API.parseRows(dat));
-  }
-
-  const cur = new Date(dateFrom + "T00:00:00");
-  const end = new Date(dateTo + "T00:00:00");
-  const dates = [];
-  while (cur <= end) {
-    dates.push(cur.toLocaleDateString("en-CA"));
-    cur.setDate(cur.getDate() + 1);
-    if (dates.length > 14) break;
-  }
-
-  const allDays = await Promise.all(
-    dates.map(async (d) => {
-      try {
-        const dat = await SmartESS.API.fetchFullDayData(dev, d);
-        if (!dat) return [];
-        return normalizeDayRecords(SmartESS.API.parseRows(dat));
-      } catch {
-        return [];
-      }
-    })
-  );
-
-  return allDays.flat();
+  return {
+    total: Math.round(total), resets, valid: resets <= 3,
+  };
 }
 
 function calculateBatteryStats(records, fromStr = "00:00", toStr = "23:59") {
@@ -923,12 +1336,8 @@ function calculateBatteryStats(records, fromStr = "00:00", toStr = "23:59") {
   const chgHours = chgMinutes / 60;
 
   // 1. Monotonic Hardware Accumulator Delta with Dropout Immunity & Reset Detection
-  const isStartOfDay =
-    fromStr === "00:00" ||
-    fromStr.endsWith(" 00:00") ||
-    (filtered[0] && filtered[0].timestamp.slice(11, 16) <= "00:05");
-  const hwDis = calculateAccumulatorDelta(filtered, "dayBatDisWh", isStartOfDay);
-  const hwChg = calculateAccumulatorDelta(filtered, "dayBatChgWh", isStartOfDay);
+  const hwDis = calculateAccumulatorDelta(filtered, "dayBatDisWh");
+  const hwChg = calculateAccumulatorDelta(filtered, "dayBatChgWh");
 
   const trapDisWh = Math.round(disWh);
   const trapChgWh = Math.round(chgWh);
@@ -1015,8 +1424,8 @@ function renderStatsTab(records, selectedDate) {
 
   const todayStr = new Date().toLocaleDateString("en-CA");
 
-  // If date was changed or not in custom range, ensure statsDateFrom/To match selectedDate for the whole day
-  if (statsRange !== "custom" && statsDateFrom !== selectedDate) {
+  // If date was changed or not in custom/outage range, ensure statsDateFrom/To match selectedDate for the whole day
+  if (statsRange !== "custom" && statsRange !== "outage" && statsDateFrom !== selectedDate) {
     statsDateFrom = selectedDate;
     statsDateTo = selectedDate;
     statsTimeFrom = "00:00";
@@ -1027,23 +1436,6 @@ function renderStatsTab(records, selectedDate) {
     });
     document.querySelectorAll(".stats-outage-chip").forEach((c) => c.classList.remove("active"));
   }
-
-  // Keep input values in sync
-  const dateFromInput = document.getElementById("statsDateFrom");
-  const timeFromInput = document.getElementById("statsTimeFrom");
-  const dateToInput = document.getElementById("statsDateTo");
-  const timeToInput = document.getElementById("statsTimeTo");
-
-  if (dateFromInput) {
-    dateFromInput.value = statsDateFrom;
-    dateFromInput.max = todayStr;
-  }
-  if (timeFromInput) timeFromInput.value = statsTimeFrom;
-  if (dateToInput) {
-    dateToInput.value = statsDateTo;
-    dateToInput.max = todayStr;
-  }
-  if (timeToInput) timeToInput.value = statsTimeTo;
 
   // 1. Detect outages from records to populate Outage Preset Chips
   const outages = [];
@@ -1103,10 +1495,6 @@ function renderStatsTab(records, selectedDate) {
           document
             .querySelectorAll("#statsPresetButtons .range-btn")
             .forEach((b) => b.classList.remove("active"));
-          if (dateFromInput) dateFromInput.value = statsDateFrom;
-          if (timeFromInput) timeFromInput.value = statsTimeFrom;
-          if (dateToInput) dateToInput.value = statsDateTo;
-          if (timeToInput) timeToInput.value = statsTimeTo;
           renderStatsTab(records, selectedDate);
         };
       });
@@ -1122,6 +1510,18 @@ function renderStatsTab(records, selectedDate) {
   const stats = calculateBatteryStats(records, fromDateTime, toDateTime);
   if (!stats) return;
 
+  currentStatsAggregate = null;
+  populateStatsCards(stats);
+
+  if (window.SmartESS?.Charts?.renderDailyStatsChart) {
+    window.SmartESS.Charts.renderDailyStatsChart([], currentStatsUnit);
+  }
+  if (window.SmartESS?.Charts?.renderHourlyStatsChart) {
+    window.SmartESS.Charts.renderHourlyStatsChart(records, currentStatsUnit);
+  }
+}
+
+function populateStatsCards(stats) {
   const formatDur = (mins) => {
     const totalMins = Math.round(Number(mins) || 0);
     const h = Math.floor(totalMins / 60);
@@ -1177,17 +1577,28 @@ function renderStatsTab(records, selectedDate) {
     if (statsDateFrom === statsDateTo) {
       intervalBadge.textContent = `${statsDateFrom} · ${statsTimeFrom}–${statsTimeTo}`;
     } else {
-      intervalBadge.textContent = `${statsDateFrom} ${statsTimeFrom} ➔ ${statsDateTo} ${statsTimeTo}`;
+      intervalBadge.textContent = `${statsDateFrom} ➔ ${statsDateTo}`;
     }
-  }
-
-  // Update Hourly Bar Chart
-  if (window.SmartESS?.Charts?.renderHourlyStatsChart) {
-    window.SmartESS.Charts.renderHourlyStatsChart(records, currentStatsUnit);
   }
 }
 
-async function loadDashboard() {
+function renderStatsAggregated(agg) {
+  if (!agg) return;
+  currentStatsAggregate = agg;
+  const outageRow = document.getElementById("statsOutagesRow");
+  if (outageRow) outageRow.style.display = "none";
+
+  populateStatsCards(agg.stats);
+
+  if (window.SmartESS?.Charts?.renderDailyStatsChart) {
+    window.SmartESS.Charts.renderDailyStatsChart(agg.dailySeries, currentStatsUnit);
+  }
+  if (window.SmartESS?.Charts?.renderHourlyStatsChart) {
+    window.SmartESS.Charts.renderHourlyStatsChart(agg.hourly, currentStatsUnit);
+  }
+}
+
+async function loadDashboard(forceRefresh = false) {
   const state = SmartESS.API.getState();
   if (!state.usr || !state.pwd) {
     openLoginModal();
@@ -1238,20 +1649,29 @@ async function loadDashboard() {
         }
       } catch {}
 
-      // Fetch historical data for the chosen date for charts, infographic ribbon, and table
-      const dat = await SmartESS.API.fetchFullDayData(dev, selectedDate);
-      if (!dat) return;
-      const rawRecords = SmartESS.API.parseRows(dat);
+      // Use shared cached past-day telemetry unless user forced a manual Refresh
+      const cachedRecs = !forceRefresh ? getCachedRawDay(dev, selectedDate) : null;
+      if (cachedRecs) {
+        fullChronoRecords = cachedRecs;
+        cachePastDay(dev, selectedDate, fullChronoRecords);
+        applyRangeAndRender();
+      } else {
+        // Fetch historical data for the chosen date for charts, infographic ribbon, and table
+        const dat = await SmartESS.API.fetchFullDayData(dev, selectedDate);
+        if (!dat) return;
+        const rawRecords = SmartESS.API.parseRows(dat);
 
-      if (rawRecords.length === 0) {
-        showError(t("noDataForDate", { date: selectedDate }));
-        SmartESS.Charts.destroyCharts();
-        renderRawTable([]);
-        return;
+        if (rawRecords.length === 0) {
+          showError(t("noDataForDate", { date: selectedDate }));
+          SmartESS.Charts.destroyCharts();
+          renderRawTable([]);
+          return;
+        }
+
+        fullChronoRecords = normalizeDayRecords(rawRecords);
+        cachePastDay(dev, selectedDate, fullChronoRecords);
+        applyRangeAndRender();
       }
-
-      fullChronoRecords = normalizeDayRecords(rawRecords);
-      applyRangeAndRender();
     }
   } catch (err) {
     showError(err.message);
@@ -1272,7 +1692,11 @@ if (SmartESS?.I18n?.onLangChange) {
     if (lastLiveRecord && currentDev) {
       renderKPI(lastLiveRecord, currentDev);
     }
+    const savedAggregate = currentStatsAggregate;
     applyRangeAndRender();
+    if (savedAggregate) {
+      renderStatsAggregated(savedAggregate);
+    }
   });
 }
 
@@ -1297,7 +1721,8 @@ tabButtons.forEach((btn) => {
 
     if (targetTab === "tabStats") {
       const curSelected = datePicker ? datePicker.value : new Date().toLocaleDateString("en-CA");
-      if (statsRange !== "custom" && statsDateFrom !== curSelected && fullChronoRecords.length > 0) {
+      const isMultiDayMode = statsRange === "custom" || statsRange === "7d" || statsRange === "14d" || statsRange === "30d";
+      if (!isMultiDayMode && statsDateFrom !== curSelected && fullChronoRecords.length > 0) {
         statsDateFrom = curSelected;
         statsDateTo = curSelected;
         statsTimeFrom = "00:00";
@@ -1314,33 +1739,11 @@ tabButtons.forEach((btn) => {
   };
 });
 
-// Range Filter Buttons
-if (rangeButtons) {
-  rangeButtons.onclick = (e) => {
-    const btn = e.target.closest(".range-btn");
-    if (!btn) return;
-    document
-      .querySelectorAll(".range-btn")
-      .forEach((b) => b.classList.remove("active"));
-    btn.classList.add("active");
-    activeRange = btn.dataset.range;
-    applyRangeAndRender();
+// Per-graph zoom reset (or global header fallback)
+document.querySelectorAll(".btn-reset-zoom[data-reset-chart], #resetZoomHeaderBtn").forEach((btn) => {
+  btn.onclick = () => {
+    SmartESS.Charts.resetZoom(btn.dataset.resetChart || undefined);
   };
-}
-
-// Reset Zoom across all charts
-const allResetZoomButtons = [
-  resetZoomBtn,
-  document.getElementById("resetZoomHeaderBtn"),
-  document.getElementById("resetZoomGridBtn"),
-  document.getElementById("resetZoomLoadBtn"),
-];
-allResetZoomButtons.forEach((btn) => {
-  if (btn) {
-    btn.onclick = () => {
-      SmartESS.Charts.resetZoom();
-    };
-  }
 });
 
 if (accountBtn) accountBtn.onclick = openLoginModal;
@@ -1452,6 +1855,36 @@ if (todayBtn) {
 }
 
 // Statistics Tab Controls
+function shiftDateStr(dateStr, deltaDays) {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d + deltaDays));
+  return dt.toISOString().slice(0, 10);
+}
+
+let multiDayRequestToken = 0;
+
+async function loadMultiDayStats(dateFrom, dateTo) {
+  if (!currentDev) return;
+  const token = ++multiDayRequestToken;
+  const intervalBadge = document.getElementById("statsIntervalBadge");
+  try {
+    const agg = await getAggregatedStatsRange(
+      currentDev,
+      dateFrom,
+      dateTo,
+      (done, total) => {
+        if (token === multiDayRequestToken && intervalBadge && total > 0) {
+          intervalBadge.textContent = t("statsLoadingDays", { done, total });
+        }
+      },
+    );
+    if (token !== multiDayRequestToken) return;
+    renderStatsAggregated(agg);
+  } catch (err) {
+    if (token === multiDayRequestToken) showError(err.message);
+  }
+}
+
 const statsPresetButtons = document.getElementById("statsPresetButtons");
 if (statsPresetButtons) {
   statsPresetButtons.onclick = (e) => {
@@ -1467,161 +1900,49 @@ if (statsPresetButtons) {
     const range = btn.dataset.statsRange;
     statsRange = range;
     const curDate = datePicker ? datePicker.value : new Date().toLocaleDateString("en-CA");
-    statsDateFrom = curDate;
-    statsDateTo = curDate;
+    const isMultiDayPreset = range === "7d" || range === "14d" || range === "30d";
 
-    if (range === "all") {
+    if (isMultiDayPreset) {
+      const days = parseInt(range, 10);
+      statsDateFrom = shiftDateStr(curDate, -(days - 1));
+      statsDateTo = curDate;
       statsTimeFrom = "00:00";
       statsTimeTo = "23:59";
-    } else if (range === "00-06") {
+      loadMultiDayStats(statsDateFrom, statsDateTo);
+    } else {
+      statsDateFrom = curDate;
+      statsDateTo = curDate;
       statsTimeFrom = "00:00";
-      statsTimeTo = "05:59";
-    } else if (range === "06-12") {
-      statsTimeFrom = "06:00";
-      statsTimeTo = "11:59";
-    } else if (range === "12-18") {
-      statsTimeFrom = "12:00";
-      statsTimeTo = "17:59";
-    } else if (range === "18-24") {
-      statsTimeFrom = "18:00";
       statsTimeTo = "23:59";
+      multiDayRequestToken++;
+      renderStatsTab(fullChronoRecords, curDate);
     }
-
-    const dateFromInput = document.getElementById("statsDateFrom");
-    const timeFromInput = document.getElementById("statsTimeFrom");
-    const dateToInput = document.getElementById("statsDateTo");
-    const timeToInput = document.getElementById("statsTimeTo");
-
-    if (dateFromInput) dateFromInput.value = statsDateFrom;
-    if (timeFromInput) timeFromInput.value = statsTimeFrom;
-    if (dateToInput) dateToInput.value = statsDateTo;
-    if (timeToInput) timeToInput.value = statsTimeTo;
-
-    renderStatsTab(fullChronoRecords, curDate);
   };
-}
-
-const statsDateFromInp = document.getElementById("statsDateFrom");
-const statsDateToInp = document.getElementById("statsDateTo");
-const statsTimeFromInp = document.getElementById("statsTimeFrom");
-const statsTimeToInp = document.getElementById("statsTimeTo");
-const statsApplyTimeBtn = document.getElementById("statsApplyTimeBtn");
-
-async function applyCustomStatsRange(autoDefaultWholeDay = false) {
-  const dFrom = statsDateFromInp?.value;
-  let tFrom = statsTimeFromInp?.value;
-  let dTo = statsDateToInp?.value;
-  let tTo = statsTimeToInp?.value;
-
-  if (dFrom) statsDateFrom = dFrom;
-  if (dTo) statsDateTo = dTo;
-
-  if (autoDefaultWholeDay) {
-    statsTimeFrom = "00:00";
-    statsTimeTo = "23:59";
-    if (statsTimeFromInp) statsTimeFromInp.value = statsTimeFrom;
-    if (statsTimeToInp) statsTimeToInp.value = statsTimeTo;
-  } else {
-    if (tFrom) statsTimeFrom = tFrom;
-    if (tTo) statsTimeTo = tTo;
-  }
-
-  if (statsDateFrom > statsDateTo) {
-    statsDateTo = statsDateFrom;
-    if (statsDateToInp) statsDateToInp.value = statsDateTo;
-  }
-
-  const isWholeDay = statsTimeFrom === "00:00" && statsTimeTo === "23:59";
-  statsRange = (statsDateFrom === statsDateTo && isWholeDay) ? "all" : "custom";
-
-  document
-    .querySelectorAll("#statsPresetButtons .range-btn")
-    .forEach((b) => b.classList.toggle("active", statsRange === "all" && b.dataset.statsRange === "all"));
-  document
-    .querySelectorAll(".stats-outage-chip")
-    .forEach((c) => c.classList.remove("active"));
-
-  const curSelected = datePicker ? datePicker.value : "";
-  if (
-    statsDateFrom === statsDateTo &&
-    statsDateFrom === curSelected &&
-    fullChronoRecords.length > 0
-  ) {
-    renderStatsTab(fullChronoRecords, statsDateFrom);
-  } else if (statsDateFrom === statsDateTo) {
-    setDate(statsDateFrom);
-  } else {
-    if (statsApplyTimeBtn) {
-      statsApplyTimeBtn.disabled = true;
-      statsApplyTimeBtn.textContent = t("loading");
-    }
-    try {
-      const records = await getRecordsForDateRange(
-        currentDev,
-        statsDateFrom,
-        statsDateTo,
-      );
-      renderStatsTab(records, statsDateFrom);
-    } finally {
-      if (statsApplyTimeBtn) {
-        statsApplyTimeBtn.disabled = false;
-        statsApplyTimeBtn.textContent = t("statsApply");
-      }
-    }
-  }
-}
-
-if (statsDateFromInp) {
-  statsDateFromInp.onchange = () => {
-    const val = statsDateFromInp.value;
-    if (!val) return;
-    statsDateFrom = val;
-    if (!statsDateToInp?.value || statsDateToInp.value <= val || statsDateTo === statsDateFrom) {
-      if (statsDateToInp) statsDateToInp.value = val;
-      statsDateTo = val;
-    }
-    applyCustomStatsRange(true);
-  };
-}
-
-if (statsDateToInp) {
-  statsDateToInp.onchange = () => {
-    const val = statsDateToInp.value;
-    if (!val) return;
-    statsDateTo = val;
-    if (statsDateTo < statsDateFrom) {
-      statsDateFrom = statsDateTo;
-      if (statsDateFromInp) statsDateFromInp.value = statsDateTo;
-    }
-    applyCustomStatsRange(true);
-  };
-}
-
-if (statsApplyTimeBtn) {
-  statsApplyTimeBtn.onclick = () => applyCustomStatsRange(false);
 }
 
 const unitWhBtn = document.getElementById("statsUnitWhBtn");
 const unitAhBtn = document.getElementById("statsUnitAhBtn");
+function setStatsDisplayUnit(unit) {
+  currentStatsUnit = unit;
+  if (unitWhBtn) unitWhBtn.classList.toggle("active", unit === "wh");
+  if (unitAhBtn) unitAhBtn.classList.toggle("active", unit === "ah");
+  if (!window.SmartESS?.Charts) return;
+  if (currentStatsAggregate) {
+    if (window.SmartESS.Charts.renderDailyStatsChart) {
+      window.SmartESS.Charts.renderDailyStatsChart(currentStatsAggregate.dailySeries, unit);
+    }
+    if (window.SmartESS.Charts.renderHourlyStatsChart) {
+      window.SmartESS.Charts.renderHourlyStatsChart(currentStatsAggregate.hourly, unit);
+    }
+  } else if (window.SmartESS.Charts.renderHourlyStatsChart) {
+    const recs = currentStatsRecords.length > 0 ? currentStatsRecords : fullChronoRecords;
+    window.SmartESS.Charts.renderHourlyStatsChart(recs, unit);
+  }
+}
+
 if (unitWhBtn && unitAhBtn) {
-  unitWhBtn.onclick = () => {
-    currentStatsUnit = "wh";
-    unitWhBtn.classList.add("active");
-    unitAhBtn.classList.remove("active");
-    if (window.SmartESS?.Charts?.renderHourlyStatsChart) {
-      const recs = currentStatsRecords.length > 0 ? currentStatsRecords : fullChronoRecords;
-      window.SmartESS.Charts.renderHourlyStatsChart(recs, "wh");
-    }
-  };
-  unitAhBtn.onclick = () => {
-    currentStatsUnit = "ah";
-    unitAhBtn.classList.add("active");
-    unitWhBtn.classList.remove("active");
-    if (window.SmartESS?.Charts?.renderHourlyStatsChart) {
-      const recs = currentStatsRecords.length > 0 ? currentStatsRecords : fullChronoRecords;
-      window.SmartESS.Charts.renderHourlyStatsChart(recs, "ah");
-    }
-  };
+  unitWhBtn.onclick = () => setStatsDisplayUnit("wh");
+  unitAhBtn.onclick = () => setStatsDisplayUnit("ah");
 }
 
 const loadBatUnitWBtn = document.getElementById("loadBatUnitWBtn");
@@ -1645,7 +1966,7 @@ if (loadBatUnitWBtn && loadBatUnitABtn) {
   };
 }
 
-if (refreshBtn) refreshBtn.onclick = loadDashboard;
+if (refreshBtn) refreshBtn.onclick = () => loadDashboard(true);
 
   // Global namespace export
   global.SmartESS = global.SmartESS || {};
@@ -1659,6 +1980,6 @@ if (refreshBtn) refreshBtn.onclick = loadDashboard;
   global.openLoginModal = openLoginModal;
 
   // Initialize
-  loadDashboard();
-  setInterval(loadDashboard, 5 * 60 * 1000);
+  loadDashboard(false);
+  setInterval(() => loadDashboard(false), 5 * 60 * 1000);
 })(typeof window !== "undefined" ? window : globalThis);

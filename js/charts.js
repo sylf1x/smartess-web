@@ -4,6 +4,7 @@
 (function (global) {
   let chartInstances = [];
   let scrubberCleanups = [];
+  const canvasScrubberControllers = new Map();
   let currentLoadBatUnit = "w"; // "w" or "a"
 
   function setLoadBatUnit(unit) {
@@ -17,6 +18,7 @@
       } catch {}
     });
     scrubberCleanups = [];
+    canvasScrubberControllers.clear();
   }
 
   function destroyCharts() {
@@ -27,6 +29,8 @@
       } catch {}
     });
     chartInstances = [];
+    statsHourlyChartInstance = null;
+    statsDailyChartInstance = null;
   }
 
   function resetZoom(chartOrId) {
@@ -55,8 +59,16 @@
   function setupScrubber({ chart, canvas, lineEl, readoutEl, records, onScrub }) {
     if (!canvas || !chart || !records || records.length === 0) return;
 
+    if (canvas.id && canvasScrubberControllers.has(canvas.id)) {
+      try {
+        canvasScrubberControllers.get(canvas.id).abort();
+      } catch {}
+    }
     const ac = new AbortController();
     const signal = ac.signal;
+    if (canvas.id) {
+      canvasScrubberControllers.set(canvas.id, ac);
+    }
     scrubberCleanups.push(() => ac.abort());
 
     function handleScrub(clientX) {
@@ -172,6 +184,122 @@
     );
   }
 
+  /**
+   * Expands sparse telemetry arrays with proportional placeholder slots whenever
+   * consecutive samples are separated by > gapThresholdMin (e.g. Wi-Fi or inverter off),
+   * so charts show broken lines + shaded missing-data bands instead of bridging across hours.
+   */
+  function expandRecordsWithGaps(records, gapThresholdMin = 15) {
+    if (!records || records.length < 2) {
+      return { plotRecords: records || [], gapRanges: [] };
+    }
+
+    const toLocalTs = (ms) => {
+      const dt = new Date(ms);
+      const y = dt.getFullYear();
+      const m = String(dt.getMonth() + 1).padStart(2, "0");
+      const d = String(dt.getDate()).padStart(2, "0");
+      const hh = String(dt.getHours()).padStart(2, "0");
+      const mm = String(dt.getMinutes()).padStart(2, "0");
+      return `${y}-${m}-${d} ${hh}:${mm}:00`;
+    };
+
+    const thresholdMs = gapThresholdMin * 60 * 1000;
+    const plotRecords = [records[0]];
+    const gapRanges = [];
+
+    for (let i = 1; i < records.length; i++) {
+      const prev = records[i - 1];
+      const cur = records[i];
+      const prevMs = new Date(String(prev.timestamp || "").replace(" ", "T")).getTime();
+      const curMs = new Date(String(cur.timestamp || "").replace(" ", "T")).getTime();
+
+      if (!isNaN(prevMs) && !isNaN(curMs) && curMs - prevMs > thresholdMs) {
+        const gapMin = (curMs - prevMs) / 60000;
+        const stepMin = Math.max(5, Math.ceil(gapMin / 120));
+        const stepMs = stepMin * 60 * 1000;
+        const gapStartIdx = plotRecords.length;
+        const gapFrom = String(prev.timestamp || "").slice(11, 16);
+        const gapTo = String(cur.timestamp || "").slice(11, 16);
+
+        for (let tMs = prevMs + stepMs; tMs < curMs - 60000; tMs += stepMs) {
+          plotRecords.push({
+            isGap: true,
+            timestamp: toLocalTs(tMs),
+            gapFrom,
+            gapTo,
+          });
+        }
+
+        if (plotRecords.length > gapStartIdx) {
+          gapRanges.push({
+            startIdx: gapStartIdx,
+            endIdx: plotRecords.length - 1,
+            fromTime: gapFrom,
+            toTime: gapTo,
+          });
+        }
+      }
+      plotRecords.push(cur);
+    }
+
+    return { plotRecords, gapRanges };
+  }
+
+  function buildGapShadingPlugin(gapRanges, gapText) {
+    return {
+      id: "gapShading",
+      beforeDatasetsDraw(chart) {
+        if (!gapRanges || gapRanges.length === 0) return;
+        const { ctx, chartArea, scales } = chart;
+        const xScale = scales?.x;
+        if (!xScale || !chartArea) return;
+
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(
+          chartArea.left,
+          chartArea.top,
+          chartArea.right - chartArea.left,
+          chartArea.bottom - chartArea.top
+        );
+        ctx.clip();
+
+        for (const gap of gapRanges) {
+          const xStartRaw = xScale.getPixelForValue(Math.max(0, gap.startIdx - 0.5));
+          const xEndRaw = xScale.getPixelForValue(gap.endIdx + 0.5);
+          if (isNaN(xStartRaw) || isNaN(xEndRaw)) continue;
+          const left = Math.min(xStartRaw, xEndRaw);
+          const width = Math.abs(xEndRaw - xStartRaw);
+          if (width < 2) continue;
+
+          ctx.fillStyle = "rgba(148, 163, 184, 0.11)";
+          ctx.fillRect(left, chartArea.top, width, chartArea.bottom - chartArea.top);
+
+          ctx.strokeStyle = "rgba(148, 163, 184, 0.35)";
+          ctx.lineWidth = 1;
+          ctx.setLineDash([4, 4]);
+          ctx.beginPath();
+          ctx.moveTo(left, chartArea.top);
+          ctx.lineTo(left, chartArea.bottom);
+          ctx.moveTo(left + width, chartArea.top);
+          ctx.lineTo(left + width, chartArea.bottom);
+          ctx.stroke();
+
+          if (width >= 56) {
+            ctx.setLineDash([]);
+            ctx.fillStyle = "rgba(203, 213, 225, 0.72)";
+            ctx.font = "600 11px Inter, system-ui, sans-serif";
+            ctx.textAlign = "center";
+            ctx.textBaseline = "top";
+            ctx.fillText(gapText, left + width / 2, chartArea.top + 8);
+          }
+        }
+        ctx.restore();
+      },
+    };
+  }
+
   function renderAllCharts(records) {
     destroyCharts();
 
@@ -180,38 +308,40 @@
     const t = window.SmartESS?.I18n?.t || window.t || ((k) => k);
     const isMobile = typeof window !== "undefined" && window.innerWidth <= 768;
 
+    const { plotRecords, gapRanges } = expandRecordsWithGaps(records, 15);
+    const gapShadingPlugin = buildGapShadingPlugin(gapRanges, t("gapChartLabel"));
+
     // Zoom limit: 4 hours minimum window (e.g. from 05:55 to 09:55)
-    // At 5-minute sampling intervals, 4 hours = 48 data points
     let minRangePoints = 48;
-    if (records.length >= 2) {
-      const t0 = new Date(records[0].timestamp.replace(" ", "T")).getTime();
-      const tLast = new Date(records[records.length - 1].timestamp.replace(" ", "T")).getTime();
+    if (plotRecords.length >= 2) {
+      const t0 = new Date(plotRecords[0].timestamp.replace(" ", "T")).getTime();
+      const tLast = new Date(plotRecords[plotRecords.length - 1].timestamp.replace(" ", "T")).getTime();
       const totalMs = tLast - t0;
       if (totalMs > 0) {
-        const msPerPoint = totalMs / (records.length - 1);
+        const msPerPoint = totalMs / (plotRecords.length - 1);
         const fourHoursMs = 4 * 60 * 60 * 1000;
         const pts = Math.round(fourHoursMs / msPerPoint);
         if (pts > 1) {
-          minRangePoints = Math.min(pts, records.length - 1);
+          minRangePoints = Math.min(pts, plotRecords.length - 1);
         }
       }
     }
 
-    const labels = records.map((r) => r.timestamp.slice(11, 16));
+    const labels = plotRecords.map((r) => r.timestamp.slice(11, 16));
 
-    const pvPower = records.map((r) => Number(r.pvPower || 0));
-    const loadActive = records.map((r) => Math.max(0, Number(r.loadActive || 0)));
-    const loadVA = records.map((r) => Math.max(0, Number(r.loadVA || 0)));
-    const batPower = records.map((r) =>
+    const mapVal = (fn) => plotRecords.map((r) => (r.isGap ? null : fn(r)));
+    const pvPower = mapVal((r) => Number(r.pvPower || 0));
+    const loadActive = mapVal((r) => Math.max(0, Number(r.loadActive || 0)));
+    const loadVA = mapVal((r) => Math.max(0, Number(r.loadVA || 0)));
+    const batPower = mapVal((r) =>
       Math.round(Number(r.batVolt || 0) * Number(r.batCurr || 0))
     );
 
-    const batSoc = records.map((r) => Number(r.batSoc || 0));
-    const batVolt = records.map((r) => Number(r.batVolt || 0));
-    const batCurr = records.map((r) => Number(r.batCurr || 0));
+    const batSoc = mapVal((r) => Number(r.batSoc || 0));
+    const batCurr = mapVal((r) => Number(r.batCurr || 0));
 
     // AC Load Current (Amperes): use hardware-fetched loadCurr if present, with fallback
-    const loadCurr = records.map((r) => {
+    const loadCurr = mapVal((r) => {
       if (r.loadCurr !== undefined && r.loadCurr !== null && Number(r.loadCurr) > 0) {
         return Math.round(Number(r.loadCurr) * 10) / 10;
       }
@@ -227,8 +357,8 @@
     const isLoadBatAmps = currentLoadBatUnit === "a";
     const loadData = isLoadBatAmps ? loadCurr : loadActive;
     const batData = isLoadBatAmps
-      ? batCurr.map((c) => Math.abs(c))
-      : batPower.map((p) => Math.abs(p));
+      ? batCurr.map((c) => (c === null ? null : Math.abs(c)))
+      : batPower.map((p) => (p === null ? null : Math.abs(p)));
     const loadUnitStr = isLoadBatAmps ? t("unitA") : t("unitW");
 
     // Dynamic Title for Load & Battery History
@@ -238,24 +368,44 @@
       loadBatTitleEl.textContent = `${baseTitle} (${loadUnitStr})`;
     }
 
-    const gridVolt = records.map((r) => Number(r.gridVolt || 0));
-    const gridFreq = records.map((r) => Number(r.gridFreq || 0));
+    const gridVolt = mapVal((r) => Number(r.gridVolt || 0));
+    const gridFreq = mapVal((r) => Number(r.gridFreq || 0));
 
-    const tempInv = records.map((r) => Number(r.tempInv || 0));
-    const tempB = records.map((r) => Number(r.tempB || 0));
-    const tempPv = records.map((r) => Number(r.tempPv || 0));
+    const tempInv = mapVal((r) => Number(r.tempInv || 0));
+    const tempB = mapVal((r) => Number(r.tempB || 0));
+    const tempPv = mapVal((r) => Number(r.tempPv || 0));
+
+    // Real-record arrays for card peak stats (excluding synthetic gap nulls)
+    const realPvPower = records.map((r) => Number(r.pvPower || 0));
+    const realLoadActive = records.map((r) => Math.max(0, Number(r.loadActive || 0)));
+    const realLoadVA = records.map((r) => Math.max(0, Number(r.loadVA || 0)));
+    const realBatPower = records.map((r) =>
+      Math.round(Number(r.batVolt || 0) * Number(r.batCurr || 0))
+    );
+    const realBatCurr = records.map((r) => Number(r.batCurr || 0));
+    const realLoadCurr = records.map((r) => {
+      if (r.loadCurr !== undefined && r.loadCurr !== null && Number(r.loadCurr) > 0) {
+        return Math.round(Number(r.loadCurr) * 10) / 10;
+      }
+      const v = Number(r.outVolt || 0);
+      const va = Number(r.loadVA || 0);
+      const w = Number(r.loadActive || 0);
+      return v >= 50 ? Math.round((Math.max(va, w) / v) * 10) / 10 : Math.round((w / 230) * 10) / 10;
+    });
+    const realTempInv = records.map((r) => Number(r.tempInv || 0));
+    const realTempPv = records.map((r) => Number(r.tempPv || 0));
 
     const maxVal = (arr) => (arr.length ? Math.max(...arr) : 0);
 
     // Stats updates for cards
     const loadBatStatsEl = document.getElementById("loadBatStats");
     if (loadBatStatsEl) {
-      const maxLoadW = maxVal(loadActive);
-      const maxLoadA = maxVal(loadCurr);
-      const maxChgW = Math.max(0, ...batPower);
-      const maxChgA = Math.max(0, ...batCurr);
-      const maxDisW = Math.abs(Math.min(0, ...batPower));
-      const maxDisA = Math.abs(Math.min(0, ...batCurr));
+      const maxLoadW = maxVal(realLoadActive);
+      const maxLoadA = maxVal(realLoadCurr);
+      const maxChgW = Math.max(0, ...realBatPower);
+      const maxChgA = Math.max(0, ...realBatCurr);
+      const maxDisW = Math.abs(Math.min(0, ...realBatPower));
+      const maxDisA = Math.abs(Math.min(0, ...realBatCurr));
 
       if (isLoadBatAmps) {
         let batStatText = "";
@@ -282,12 +432,12 @@
 
     const powerStatsEl = document.getElementById("powerStats");
     if (powerStatsEl) {
-      powerStatsEl.textContent = `${t("peakPv")}: ${maxVal(pvPower)} ${t("unitW")} · ${t("peakLoad")}: ${maxVal(loadVA)} ${t("unitVa")}`;
+      powerStatsEl.textContent = `${t("peakPv")}: ${maxVal(realPvPower)} ${t("unitW")} · ${t("peakLoad")}: ${maxVal(realLoadVA)} ${t("unitVa")}`;
     }
 
     const tempStatsEl = document.getElementById("tempStats");
     if (tempStatsEl) {
-      tempStatsEl.textContent = `${t("maxInv")}: ${maxVal(tempInv)} ${t("unitDeg")} · PV: ${maxVal(tempPv)} ${t("unitDeg")}`;
+      tempStatsEl.textContent = `${t("maxInv")}: ${maxVal(realTempInv)} ${t("unitDeg")} · PV: ${maxVal(realTempPv)} ${t("unitDeg")}`;
     }
 
     // Base Options: Tooltips disabled completely on all devices since readouts are underneath
@@ -340,6 +490,7 @@
     if (gridCanvas) {
       gridChartInstance = new Chart(gridCanvas, {
         type: "line",
+        plugins: [gapShadingPlugin],
         data: {
           labels,
           datasets: [
@@ -353,6 +504,7 @@
               tension: 0.2,
               pointRadius: 0,
               borderWidth: 2,
+              spanGaps: false,
             },
             {
               label: t("chartBatSoc"),
@@ -364,6 +516,7 @@
               tension: 0.25,
               pointRadius: 0,
               borderWidth: 2,
+              spanGaps: false,
             },
             {
               label: t("chartGridFreq"),
@@ -374,6 +527,7 @@
               pointRadius: 0,
               borderWidth: 1.5,
               borderDash: [3, 3],
+              spanGaps: false,
             },
           ],
         },
@@ -439,6 +593,17 @@
       function updateGridReadout(rec) {
         if (!rec) return;
         if (gridTimeEl) gridTimeEl.textContent = rec.timestamp.slice(11, 16);
+        if (rec.isGap) {
+          if (gridVoltEl) {
+            gridVoltEl.textContent = t("gapScrubLabel", { from: rec.gapFrom, to: rec.gapTo });
+            gridVoltEl.className = "val-muted";
+          }
+          if (gridSocEl) gridSocEl.textContent = "🔋 —";
+          if (gridFreqEl) gridFreqEl.textContent = "〰️ —";
+          if (gridModeEl) gridModeEl.textContent = "—";
+          if (gridReadout) gridReadout.classList.add("is-active");
+          return;
+        }
         if (gridVoltEl) {
           const v = Number(rec.gridVolt || 0);
           if (v < 50) {
@@ -474,7 +639,7 @@
         canvas: gridCanvas,
         lineEl: gridLine,
         readoutEl: gridReadout,
-        records,
+        records: plotRecords,
         onScrub: updateGridReadout,
       });
     }
@@ -485,6 +650,7 @@
     if (loadBatCanvas) {
       loadBatChartInstance = new Chart(loadBatCanvas, {
         type: "line",
+        plugins: [gapShadingPlugin],
         data: {
           labels,
           datasets: [
@@ -499,6 +665,7 @@
               tension: 0.25,
               pointRadius: 0,
               borderWidth: 2,
+              spanGaps: false,
             },
             {
               label: isLoadBatAmps
@@ -511,12 +678,13 @@
                   const rawVal = isLoadBatAmps
                     ? batCurr[ctx.p0DataIndex]
                     : batPower[ctx.p0DataIndex];
-                  return rawVal < 0 ? "#f59e0b" : "#22c55e";
+                  return rawVal === null || rawVal < 0 ? "#f59e0b" : "#22c55e";
                 },
               },
               tension: 0.25,
               pointRadius: 0,
               borderWidth: 1.8,
+              spanGaps: false,
             },
           ],
         },
@@ -549,6 +717,19 @@
       function updateLoadBatReadout(rec) {
         if (!rec) return;
         if (loadBatTimeEl) loadBatTimeEl.textContent = rec.timestamp.slice(11, 16);
+        if (rec.isGap) {
+          if (loadBatLoadEl) {
+            loadBatLoadEl.textContent = t("gapScrubLabel", { from: rec.gapFrom, to: rec.gapTo });
+            loadBatLoadEl.className = "val-muted";
+          }
+          if (loadBatBatEl) {
+            loadBatBatEl.textContent = "🔋 —";
+            loadBatBatEl.className = "val-muted";
+          }
+          if (loadBatModeEl) loadBatModeEl.textContent = "—";
+          if (loadBatReadout) loadBatReadout.classList.add("is-active");
+          return;
+        }
 
         const rawLoadA = Number(rec.loadCurr || 0);
         const vOut = Number(rec.outVolt || 0);
@@ -597,7 +778,7 @@
         canvas: loadBatCanvas,
         lineEl: loadBatLine,
         readoutEl: loadBatReadout,
-        records,
+        records: plotRecords,
         onScrub: updateLoadBatReadout,
       });
     }
@@ -608,6 +789,7 @@
     if (powerCanvas) {
       powerChartInstance = new Chart(powerCanvas, {
         type: "line",
+        plugins: [gapShadingPlugin],
         data: {
           labels,
           datasets: [
@@ -620,6 +802,7 @@
               tension: 0.25,
               pointRadius: 0,
               borderWidth: 2,
+              spanGaps: false,
             },
             {
               label: t("chartLoadVA"),
@@ -630,6 +813,7 @@
               tension: 0.25,
               pointRadius: 0,
               borderWidth: 2,
+              spanGaps: false,
             },
             {
               label: t("chartLoadActive"),
@@ -639,6 +823,7 @@
               pointRadius: 0,
               borderWidth: 1.5,
               borderDash: [4, 3],
+              spanGaps: false,
             },
             {
               label: t("chartBat"),
@@ -647,6 +832,7 @@
               tension: 0.25,
               pointRadius: 0,
               borderWidth: 1.8,
+              spanGaps: false,
             },
           ],
         },
@@ -676,6 +862,21 @@
       function updatePowerReadout(rec) {
         if (!rec) return;
         if (powerTimeEl) powerTimeEl.textContent = rec.timestamp.slice(11, 16);
+        if (rec.isGap) {
+          if (powerPvEl) powerPvEl.textContent = t("gapScrubLabel", { from: rec.gapFrom, to: rec.gapTo });
+          if (powerVaEl) powerVaEl.textContent = "⚡ —";
+          if (powerLoadEl) {
+            powerLoadEl.textContent = "🏠 —";
+            powerLoadEl.className = "val-muted";
+          }
+          if (powerBatEl) {
+            powerBatEl.textContent = "🔋 —";
+            powerBatEl.className = "val-muted";
+          }
+          if (powerModeEl) powerModeEl.textContent = "—";
+          if (powerReadout) powerReadout.classList.add("is-active");
+          return;
+        }
         if (powerPvEl) {
           const pvA = Number(rec.pvCurr || 0);
           const pvW = Number(rec.pvPower || 0);
@@ -726,7 +927,7 @@
         canvas: powerCanvas,
         lineEl: powerLine,
         readoutEl: powerReadout,
-        records,
+        records: plotRecords,
         onScrub: updatePowerReadout,
       });
     }
@@ -737,6 +938,7 @@
     if (tempCanvas) {
       tempChartInstance = new Chart(tempCanvas, {
         type: "line",
+        plugins: [gapShadingPlugin],
         data: {
           labels,
           datasets: [
@@ -747,6 +949,7 @@
               tension: 0.25,
               pointRadius: 0,
               borderWidth: 2,
+              spanGaps: false,
             },
             {
               label: t("chartTempB"),
@@ -755,6 +958,7 @@
               tension: 0.25,
               pointRadius: 0,
               borderWidth: 2,
+              spanGaps: false,
             },
             {
               label: t("chartTempPv"),
@@ -763,6 +967,7 @@
               tension: 0.25,
               pointRadius: 0,
               borderWidth: 2,
+              spanGaps: false,
             },
           ],
         },
@@ -790,6 +995,13 @@
       function updateTempReadout(rec) {
         if (!rec) return;
         if (tempTimeEl) tempTimeEl.textContent = rec.timestamp.slice(11, 16);
+        if (rec.isGap) {
+          if (tempInvEl) tempInvEl.textContent = t("gapScrubLabel", { from: rec.gapFrom, to: rec.gapTo });
+          if (tempBEl) tempBEl.textContent = "🌡️ —";
+          if (tempPvEl) tempPvEl.textContent = "☀️ —";
+          if (tempReadout) tempReadout.classList.add("is-active");
+          return;
+        }
         if (tempInvEl) {
           tempInvEl.textContent = `🌡️ ${t("scrubInv")}: ${rec.tempInv} ${t("unitDeg")}`;
         }
@@ -809,7 +1021,7 @@
         canvas: tempCanvas,
         lineEl: tempLine,
         readoutEl: tempReadout,
-        records,
+        records: plotRecords,
         onScrub: updateTempReadout,
       });
     }
@@ -819,13 +1031,155 @@
   }
 
   let statsHourlyChartInstance = null;
+  let statsDailyChartInstance = null;
   let currentStatsUnit = "wh";
 
   function setStatsUnit(unit) {
     currentStatsUnit = unit;
   }
 
-  function renderHourlyStatsChart(records, unit = currentStatsUnit) {
+  /**
+   * Renders the Daily Breakdown Bar Chart for multi-day views (Week / 14 Days / 30 Days).
+   * Automatically hides the section when viewing a single day.
+   */
+  function renderDailyStatsChart(dailySeries, unit = currentStatsUnit) {
+    currentStatsUnit = unit;
+    const section = document.getElementById("statsDailySection");
+    const canvas = document.getElementById("statsDailyChart");
+
+    if (statsDailyChartInstance) {
+      try {
+        statsDailyChartInstance.destroy();
+      } catch {}
+      statsDailyChartInstance = null;
+    }
+
+    if (!Array.isArray(dailySeries) || dailySeries.length <= 1) {
+      if (section) section.style.display = "none";
+      return;
+    }
+
+    if (section) section.style.display = "";
+    if (!canvas) return;
+
+    const t = window.SmartESS?.I18n?.t || window.t || ((k) => k);
+    const isMobile = typeof window !== "undefined" && window.innerWidth <= 768;
+
+    const subBadge = document.getElementById("statsDailySubBadge");
+    if (subBadge) {
+      subBadge.textContent = t("statsDailySubBadge", { days: dailySeries.length });
+    }
+
+    // Format labels compactly as MM-DD (or DD.MM)
+    const labels = dailySeries.map((d) => {
+      const parts = String(d.date || "").split("-");
+      return parts.length === 3 ? `${parts[2]}.${parts[1]}` : d.date;
+    });
+
+    const chargedData = dailySeries.map((d) =>
+      unit === "ah" ? Number((d.chgAh || 0).toFixed(1)) : Math.round(d.chgWh || 0)
+    );
+    const dischargedData = dailySeries.map((d) =>
+      unit === "ah" ? Number((d.disAh || 0).toFixed(1)) : Math.round(d.disWh || 0)
+    );
+
+    const unitLabel = unit === "ah" ? t("unitAh") : t("unitWh");
+
+    statsDailyChartInstance = new Chart(canvas, {
+      data: {
+        labels,
+        datasets: [
+          {
+            type: "bar",
+            label: `${t("charge")} (${unitLabel})`,
+            data: chargedData,
+            backgroundColor: "rgba(34, 197, 94, 0.78)",
+            borderColor: "#22c55e",
+            borderWidth: 1,
+            borderRadius: 4,
+          },
+          {
+            type: "bar",
+            label: `${t("discharge")} (${unitLabel})`,
+            data: dischargedData,
+            backgroundColor: "rgba(245, 158, 11, 0.78)",
+            borderColor: "#f59e0b",
+            borderWidth: 1,
+            borderRadius: 4,
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: {
+            labels: { color: "#eef0f8", boxWidth: 12, font: { size: 12 } },
+          },
+          tooltip: { enabled: false },
+        },
+        scales: {
+          x: {
+            ticks: {
+              color: "#8c95b8",
+              maxRotation: 0,
+              autoSkip: true,
+              maxTicksLimit: isMobile ? 7 : 15,
+            },
+            grid: { display: false },
+          },
+          y: {
+            min: 0,
+            ticks: {
+              display: !isMobile,
+              color: "#8c95b8",
+              callback: (v) => v + " " + unitLabel,
+            },
+            grid: { color: "rgba(255,255,255,0.05)" },
+          },
+        },
+      },
+    });
+
+    chartInstances.push(statsDailyChartInstance);
+
+    const dailyLine = document.getElementById("statsDailyScrubLine");
+    const dailyReadout = document.getElementById("statsDailyScrubReadout");
+    const dailyDateEl = document.getElementById("statsDailyDate");
+    const dailyChgEl = document.getElementById("statsDailyCharge");
+    const dailyDisEl = document.getElementById("statsDailyDischarge");
+
+    function updateDailyReadout(idx) {
+      if (idx < 0 || idx >= dailySeries.length) return;
+      const item = dailySeries[idx];
+      const cVal = chargedData[idx];
+      const dVal = dischargedData[idx];
+
+      if (dailyDateEl) dailyDateEl.textContent = item.date;
+      if (dailyChgEl) {
+        dailyChgEl.textContent = `⚡ +${cVal.toLocaleString()} ${unitLabel} (${t("charge")})`;
+        dailyChgEl.className = cVal > 0 ? "val-green" : "val-muted";
+      }
+      if (dailyDisEl) {
+        dailyDisEl.textContent = `🔋 ${dVal.toLocaleString()} ${unitLabel} (${t("discharge")})`;
+        dailyDisEl.className = dVal > 0 ? "val-amber" : "val-muted";
+      }
+      if (dailyReadout) dailyReadout.classList.add("is-active");
+    }
+
+    updateDailyReadout(dailySeries.length - 1);
+
+    setupScrubber({
+      chart: statsDailyChartInstance,
+      canvas,
+      lineEl: dailyLine,
+      readoutEl: dailyReadout,
+      records: dailySeries,
+      onScrub: (_, idx) => updateDailyReadout(idx),
+    });
+  }
+
+  function renderHourlyStatsChart(dataOrRecords, unit = currentStatsUnit) {
     currentStatsUnit = unit;
     const canvas = document.getElementById("statsHourlyChart");
     if (!canvas) return;
@@ -837,7 +1191,14 @@
       statsHourlyChartInstance = null;
     }
 
-    if (!records || records.length === 0) return;
+    const isAggregated =
+      dataOrRecords &&
+      !Array.isArray(dataOrRecords) &&
+      dataOrRecords.isAggregated === true;
+
+    if (!isAggregated && (!Array.isArray(dataOrRecords) || dataOrRecords.length === 0)) {
+      return;
+    }
 
     const t = window.SmartESS?.I18n?.t || window.t || ((k) => k);
     const isMobile = typeof window !== "undefined" && window.innerWidth <= 768;
@@ -845,43 +1206,53 @@
     // Hourly aggregation for 24 hours (00 to 23)
     const hours = Array.from({ length: 24 }, (_, i) => i);
     const labels = hours.map((h) => String(h).padStart(2, "0") + ":00");
-    const charged = new Array(24).fill(0);
-    const discharged = new Array(24).fill(0);
-    const load = new Array(24).fill(0);
+    let charged = new Array(24).fill(0);
+    let discharged = new Array(24).fill(0);
+    let load = new Array(24).fill(0);
+    let pv = new Array(24).fill(0);
+    let dayCount = 1;
 
-    const dt = 5 / 60; // 5 min interval in hours
+    if (isAggregated) {
+      dayCount = Math.max(1, Number(dataOrRecords.dayCount || 1));
+      charged = unit === "ah" ? [...dataOrRecords.chargedAh] : [...dataOrRecords.chargedWh];
+      discharged = unit === "ah" ? [...dataOrRecords.dischargedAh] : [...dataOrRecords.dischargedWh];
+      load = [...dataOrRecords.loadWh];
+      pv = [...dataOrRecords.pvWh];
+    } else {
+      const dt = 5 / 60; // 5 min interval in hours
+      for (const r of dataOrRecords) {
+        const h = Number(r.timestamp.slice(11, 13));
+        if (h < 0 || h > 23) continue;
 
-    for (const r of records) {
-      const h = Number(r.timestamp.slice(11, 13));
-      if (h < 0 || h > 23) continue;
+        const v = Number(r.batVolt || 0);
+        const a = Number(r.batCurr || 0);
+        const l = Number(r.loadActive || 0);
+        const pPv = Math.max(0, Number(r.pvPower || 0));
 
-      const v = Number(r.batVolt || 0);
-      const a = Number(r.batCurr || 0);
-      const l = Number(r.loadActive || 0);
+        load[h] += l * dt;
+        pv[h] += pPv * dt;
 
-      load[h] += l * dt;
-
-      if (unit === "ah") {
-        if (a > 0) {
-          charged[h] += a * dt;
-        } else if (a < 0) {
-          discharged[h] += Math.abs(a) * dt;
-        }
-      } else {
-        const p = v * Math.abs(a);
-        if (a > 0) {
-          charged[h] += p * dt;
-        } else if (a < 0) {
-          discharged[h] += p * dt;
+        if (unit === "ah") {
+          if (a > 0) {
+            charged[h] += a * dt;
+          } else if (a < 0) {
+            discharged[h] += Math.abs(a) * dt;
+          }
+        } else {
+          const p = v * Math.abs(a);
+          if (a > 0) {
+            charged[h] += p * dt;
+          } else if (a < 0) {
+            discharged[h] += p * dt;
+          }
         }
       }
-    }
 
-    // Count unique days in records to handle multi-day vs single-day correctly
-    const uniqueDays = new Set(
-      records.map((r) => r.timestamp.slice(0, 10)).filter(Boolean)
-    );
-    const dayCount = Math.max(1, uniqueDays.size);
+      const uniqueDays = new Set(
+        dataOrRecords.map((r) => r.timestamp.slice(0, 10)).filter(Boolean)
+      );
+      dayCount = Math.max(1, uniqueDays.size);
+    }
 
     // Update subtitle badge
     const subBadge = document.getElementById("statsHourlySubBadge");
@@ -946,29 +1317,7 @@
           legend: {
             labels: { color: "#eef0f8", boxWidth: 12, font: { size: 12 } },
           },
-          tooltip: {
-            enabled: true,
-            backgroundColor: "rgba(15, 23, 42, 0.95)",
-            titleColor: "#e2e8f0",
-            bodyColor: "#e2e8f0",
-            borderColor: "rgba(255, 255, 255, 0.15)",
-            borderWidth: 1,
-            padding: 10,
-            boxPadding: 4,
-            callbacks: {
-              title: (items) => {
-                const hourIdx = items[0].dataIndex;
-                const nextHour = (hourIdx + 1) % 24;
-                const timeStr = `${String(hourIdx).padStart(2, "0")}:00 – ${String(nextHour).padStart(2, "0")}:00`;
-                const modeStr = dayCount > 1
-                  ? ` (${t("statsHourlyAvgDaily", { days: dayCount })})`
-                  : ` (${t("statsHourlyTotalPerHour")})`;
-                return `${timeStr} · ${modeStr}`;
-              },
-              label: (item) =>
-                ` ${item.dataset.label}: ${item.parsed.y} ${unit === "ah" ? t("unitAh") : t("unitWh")}`,
-            },
-          },
+          tooltip: { enabled: false },
         },
         scales: {
           x: {
@@ -1024,13 +1373,7 @@
         hourlyLoadEl.textContent = `🏠 ${lVal} ${t("unitWh")}`;
       }
       if (hourlyPvEl) {
-        let pvSum = 0;
-        for (const r of records) {
-          if (Number(r.timestamp.slice(11, 13)) === hourIdx) {
-            pvSum += Math.max(0, Number(r.pvPower || 0)) * (5 / 60);
-          }
-        }
-        hourlyPvEl.textContent = `☀️ ${Math.round(pvSum / divisor)} ${t("unitWh")}`;
+        hourlyPvEl.textContent = `☀️ ${Math.round(pv[hourIdx] / divisor)} ${t("unitWh")}`;
       }
       if (hourlyReadout) hourlyReadout.classList.add("is-active");
     }
@@ -1052,6 +1395,7 @@
   global.SmartESS = global.SmartESS || {};
   global.SmartESS.Charts = {
     renderAllCharts,
+    renderDailyStatsChart,
     renderHourlyStatsChart,
     setStatsUnit,
     setLoadBatUnit,

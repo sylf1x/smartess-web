@@ -155,9 +155,7 @@
             <div class="infographic-stats">
               <span class="stat-pill pill-green" id="statGridOnline">🟢 В мережі: —</span>
               <span class="stat-pill pill-red" id="statGridOffline">🔴 Відключення: —</span>
-              <span class="stat-pill" id="statGridVoltRange">⚡ 220 В</span>
-              <span class="stat-pill pill-green" id="statGridBatRange">🔋 АКБ: — %</span>
-              <button class="btn-reset-zoom" id="resetZoomGridBtn" data-i18n="resetZoom">Скидання зуму</button>
+              <span class="stat-pill pill-muted" id="statGridNoData" style="display: none;">⬜ Немає даних: —</span>
             </div>
           </div>
 
@@ -177,10 +175,23 @@
               <div class="legend-item"><span class="legend-dot" style="background:#22c55e"></span> <span data-i18n="legendOnline">В мережі (&ge;180В)</span></div>
               <div class="legend-item"><span class="legend-dot" style="background:#f59e0b"></span> <span data-i18n="legendWarning">Нестабільна (&lt;180В)</span></div>
               <div class="legend-item"><span class="legend-dot" style="background:#ef4444"></span> <span data-i18n="legendOffline">Відключення світла (0В)</span></div>
+              <div class="legend-item"><span class="legend-dot seg-nodata-dot"></span> <span data-i18n="legendNoData">Немає даних (&gt;15 хв)</span></div>
             </div>
           </div>
+        </section>
 
-          <!-- Grid Voltage & Frequency Chart with Touch Scrubber -->
+        <!-- Grid Voltage, Battery SoC & Frequency Chart (Separate Card) -->
+        <section class="card chart-full">
+          <div class="card-header">
+            <div class="card-title-group">
+              <div class="card-label" data-i18n="gridChartCardTitle">Напруга мережі, заряд АКБ (%) та частота</div>
+            </div>
+            <div class="infographic-stats">
+              <span class="stat-pill" id="statGridVoltRange">⚡ 220 В</span>
+              <span class="stat-pill pill-green" id="statGridBatRange">🔋 АКБ: — %</span>
+              <button class="btn-reset-zoom" id="resetZoomGridBtn" data-reset-chart="gridChart" data-i18n="resetZoom">Скидання зуму</button>
+            </div>
+          </div>
           <div class="chart-box-main">
             <canvas id="gridChart"></canvas>
             <div class="chart-scrubber-line" id="gridScrubLine"></div>
@@ -207,7 +218,7 @@
                 <button class="stats-unit-btn" id="loadBatUnitABtn" data-unit="a" data-i18n="unitABtn">А (A)</button>
               </div>
               <div class="card-stats" id="loadBatStats">—</div>
-              <button class="btn-reset-zoom" id="resetZoomLoadBtn" data-i18n="resetZoom">Скидання зуму</button>
+              <button class="btn-reset-zoom" id="resetZoomLoadBtn" data-reset-chart="loadBatChart" data-i18n="resetZoom">Скидання зуму</button>
             </div>
           </div>
           <div class="chart-box-main">
@@ -248,37 +259,23 @@
 
         <!-- Time Range & Outage Presets Card -->
         <div class="card stats-filter-card">
-          <div class="stats-filter-section">
-            <div class="stats-filter-label" data-i18n="statsTimeChoice">Діапазон вимірювання (Дата та Час):</div>
-            <div class="range-group" id="statsPresetButtons">
-              <button class="range-btn active" data-stats-range="all" data-i18n="rangeAll">Весь день</button>
-              <button class="range-btn" data-stats-range="00-06" data-i18n="range0006">Ніч 00–06</button>
-              <button class="range-btn" data-stats-range="06-12" data-i18n="range0612">Ранок 06–12</button>
-              <button class="range-btn" data-stats-range="12-18" data-i18n="range1218">День 12–18</button>
-              <button class="range-btn" data-stats-range="18-24" data-i18n="range1824">Вечір 18–24</button>
+          <div class="stats-filter-section" style="justify-content: space-between; align-items: center;">
+            <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+              <div class="stats-filter-label" data-i18n="statsTimeChoice">Діапазон вимірювання (Дата та Час):</div>
+              <div class="range-group" id="statsPresetButtons">
+                <button class="range-btn active" data-stats-range="all" data-i18n="rangeAll">Весь день</button>
+                <button class="range-btn" data-stats-range="7d" data-i18n="range7d">Тиждень</button>
+                <button class="range-btn" data-stats-range="14d" data-i18n="range14d">14 днів</button>
+                <button class="range-btn" data-stats-range="30d" data-i18n="range30d">30 днів</button>
+              </div>
             </div>
+            <div class="stats-interval-badge" id="statsIntervalBadge">00:00 – 23:59</div>
           </div>
 
           <!-- Outage Presets Container (Populated dynamically when outages exist) -->
           <div class="stats-outages-row" id="statsOutagesRow" style="display: none;">
             <span class="stats-filter-sublabel">🔴 <span data-i18n="statsOutagesPreset">Відключення:</span></span>
             <div class="stats-outage-chips" id="statsOutageChips"></div>
-          </div>
-
-          <!-- Custom Date & Time Range Form -->
-          <div class="stats-custom-time-row">
-            <div class="stats-time-input-group">
-              <label for="statsDateFrom" data-i18n="statsFrom">Від:</label>
-              <input type="date" id="statsDateFrom" class="stats-date-input" />
-              <input type="time" id="statsTimeFrom" value="00:00" class="stats-time-input" />
-            </div>
-            <div class="stats-time-input-group">
-              <label for="statsDateTo" data-i18n="statsTo">До:</label>
-              <input type="date" id="statsDateTo" class="stats-date-input" />
-              <input type="time" id="statsTimeTo" value="23:59" class="stats-time-input" />
-            </div>
-            <button class="range-btn primary" id="statsApplyTimeBtn" data-i18n="statsApply">Застосувати</button>
-            <div class="stats-interval-badge" id="statsIntervalBadge">00:00 – 23:59</div>
           </div>
         </div>
 
@@ -340,6 +337,26 @@
             </div>
           </div>
         </div>
+
+        <!-- Multi-Day Daily Breakdown Chart (Shown only when > 1 day is selected) -->
+        <section class="card chart-full" id="statsDailySection" style="display: none; margin-bottom: 16px;">
+          <div class="card-header">
+            <div class="card-title-group">
+              <div class="card-label" data-i18n="statsDailyTitle">Енергія АКБ по днях</div>
+              <div class="card-sub-inline" id="statsDailySubBadge">—</div>
+            </div>
+          </div>
+          <div class="chart-box-main">
+            <canvas id="statsDailyChart"></canvas>
+            <div class="chart-scrubber-line" id="statsDailyScrubLine"></div>
+          </div>
+          <div class="chart-scrubber-readout" id="statsDailyScrubReadout">
+            <div class="scrub-time"><span class="scrub-icon">📅</span> <span id="statsDailyDate">—</span></div>
+            <div class="scrub-pill"><span class="scrub-dot dot-green"></span> <span id="statsDailyCharge">—</span></div>
+            <div class="scrub-pill"><span class="scrub-dot dot-amber"></span> <span id="statsDailyDischarge">—</span></div>
+            <div class="scrub-hint" data-i18n="scrubHint">Проведи пальцем по графіку</div>
+          </div>
+        </section>
 
         <!-- Hourly Distribution Chart with Wh / Ah Toggle and Scrubber Readout -->
         <section class="card chart-full">
@@ -424,26 +441,14 @@
           </div>
         </div>
 
-        <!-- Time Range Toolbar -->
-        <div class="toolbar">
-          <div class="range-group" id="rangeButtons">
-            <button class="range-btn active" data-range="all" data-i18n="rangeAll">Весь день</button>
-            <button class="range-btn" data-range="00-06" data-i18n="range0006">Ніч 00–06</button>
-            <button class="range-btn" data-range="06-12" data-i18n="range0612">Ранок 06–12</button>
-            <button class="range-btn" data-range="12-18" data-i18n="range1218">День 12–18</button>
-            <button class="range-btn" data-range="18-24" data-i18n="range1824">Вечір 18–24</button>
-          </div>
-          <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
-            <span class="zoom-hint desktop-only" data-i18n="zoomHint">Виділи область мишкою для зуму</span>
-            <button id="resetZoomBtn" class="btn-reset-zoom" data-i18n="resetZoom">Скидання зуму</button>
-          </div>
-        </div>
-
         <!-- Full Power Balance Chart with Touch Scrubber -->
         <div class="card chart-full">
           <div class="card-header">
             <div class="card-label" data-i18n="powerBalanceTitle">Повний баланс потужності (Сонце, Навантаження, АКБ)</div>
-            <div class="card-stats" id="powerStats">—</div>
+            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+              <div class="card-stats" id="powerStats">—</div>
+              <button class="btn-reset-zoom" id="resetZoomPowerBtn" data-reset-chart="powerChart" data-i18n="resetZoom">Скидання зуму</button>
+            </div>
           </div>
           <div class="chart-box-lg">
             <canvas id="powerChart"></canvas>
@@ -464,7 +469,10 @@
         <div class="card chart-full">
           <div class="card-header">
             <div class="card-label" data-i18n="thermalProfileTitle">Температурний профіль вузлів (°C)</div>
-            <div class="card-stats" id="tempStats">—</div>
+            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+              <div class="card-stats" id="tempStats">—</div>
+              <button class="btn-reset-zoom" id="resetZoomTempBtn" data-reset-chart="tempChart" data-i18n="resetZoom">Скидання зуму</button>
+            </div>
           </div>
           <div class="chart-box">
             <canvas id="tempChart"></canvas>
