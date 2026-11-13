@@ -214,6 +214,23 @@
     const t = window.SmartESS?.I18n?.t || window.t || ((k) => k);
     const isMobile = typeof window !== "undefined" && window.innerWidth <= 768;
 
+    // Zoom limit: 4 hours minimum window (e.g. from 05:55 to 09:55)
+    // At 5-minute sampling intervals, 4 hours = 48 data points
+    let minRangePoints = 48;
+    if (records.length >= 2) {
+      const t0 = new Date(records[0].timestamp.replace(" ", "T")).getTime();
+      const tLast = new Date(records[records.length - 1].timestamp.replace(" ", "T")).getTime();
+      const totalMs = tLast - t0;
+      if (totalMs > 0) {
+        const msPerPoint = totalMs / (records.length - 1);
+        const fourHoursMs = 4 * 60 * 60 * 1000;
+        const pts = Math.round(fourHoursMs / msPerPoint);
+        if (pts > 1) {
+          minRangePoints = Math.min(pts, records.length - 1);
+        }
+      }
+    }
+
     const labels = records.map((r) => r.timestamp.slice(11, 16));
 
     const pvPower = records.map((r) => Number(r.pvPower || 0));
@@ -321,7 +338,11 @@
         },
         zoom: {
           limits: {
-            x: { min: "original", max: "original" },
+            x: {
+              min: "original",
+              max: "original",
+              minRange: minRangePoints,
+            },
           },
           pan: {
             enabled: true,
