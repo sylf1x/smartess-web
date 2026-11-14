@@ -442,6 +442,7 @@
     const batPower = mapVal((r) =>
       Math.round(Number(r.batVolt || 0) * Number(r.batCurr || 0))
     );
+    const chgPower = mapVal((r) => Math.max(0, Number(r.chgPower || 0)));
 
     const batSoc = mapVal((r) => Number(r.batSoc || 0));
     const batCurr = mapVal((r) => Number(r.batCurr || 0));
@@ -488,6 +489,8 @@
     const realBatPower = records.map((r) =>
       Math.round(Number(r.batVolt || 0) * Number(r.batCurr || 0))
     );
+    const realChgPower = records.map((r) => Math.max(0, Number(r.chgPower || 0)));
+    const hasChgPower = realChgPower.some((v) => v > 0);
     const realBatCurr = records.map((r) => Number(r.batCurr || 0));
     const realLoadCurr = records.map((r) => {
       if (r.loadCurr !== undefined && r.loadCurr !== null && Number(r.loadCurr) > 0) {
@@ -524,11 +527,14 @@
         }
         loadBatStatsEl.textContent = `${t("peakLoad")}: ${maxLoadA.toFixed(1)} ${t("unitA")}${batStatText ? " · " + batStatText : ""}`;
       } else {
+        const maxChgDrawnW = hasChgPower ? maxVal(realChgPower) : 0;
+        const chgDrawnPart =
+          maxChgDrawnW > 0 ? ` (${t("chargerDrawShort", { w: maxChgDrawnW })})` : "";
         let batStatText = "";
         if (maxChgW > 0 && maxDisW > 0) {
-          batStatText = `${t("charge")}: +${maxChgW} ${t("unitW")} (${maxChgA.toFixed(1)} ${t("unitA")}) · ${t("discharge")}: ${maxDisW} ${t("unitW")} (${maxDisA.toFixed(1)} ${t("unitA")})`;
+          batStatText = `${t("charge")}: +${maxChgW} ${t("unitW")} (${maxChgA.toFixed(1)} ${t("unitA")})${chgDrawnPart} · ${t("discharge")}: ${maxDisW} ${t("unitW")} (${maxDisA.toFixed(1)} ${t("unitA")})`;
         } else if (maxChgW > 0) {
-          batStatText = `${t("peakCharge")}: +${maxChgW} ${t("unitW")} (${maxChgA.toFixed(1)} ${t("unitA")})`;
+          batStatText = `${t("peakCharge")}: +${maxChgW} ${t("unitW")} (${maxChgA.toFixed(1)} ${t("unitA")})${chgDrawnPart}`;
         } else if (maxDisW > 0) {
           batStatText = `${t("peakDischarge")}: ${maxDisW} ${t("unitW")} (${maxDisA.toFixed(1)} ${t("unitA")})`;
         }
@@ -757,45 +763,58 @@
     const loadBatCanvas = document.getElementById("loadBatChart");
     let loadBatChartInstance = null;
     if (loadBatCanvas) {
+      const loadBatDatasets = [
+        {
+          label: isLoadBatAmps
+            ? `${t("chartLoadCurrOnly")} (${t("unitA")})`
+            : `${t("chartLoadOnly")} (${t("unitW")})`,
+          data: loadData,
+          borderColor: "#7c5cff",
+          backgroundColor: "rgba(124, 92, 255, 0.16)",
+          fill: true,
+          tension: 0.25,
+          pointRadius: 0,
+          borderWidth: 2,
+          spanGaps: false,
+        },
+        {
+          label: isLoadBatAmps
+            ? `${t("chartBatCurrOnly")} (${t("unitA")})`
+            : `${t("chartBatPowerOnly")} (${t("unitW")})`,
+          data: batData,
+          borderColor: "#22c55e",
+          segment: {
+            borderColor: (ctx) => {
+              const rawVal = isLoadBatAmps
+                ? batCurr[ctx.p0DataIndex]
+                : batPower[ctx.p0DataIndex];
+              return rawVal === null || rawVal < 0 ? "#f59e0b" : "#22c55e";
+            },
+          },
+          tension: 0.25,
+          pointRadius: 0,
+          borderWidth: 1.8,
+          spanGaps: false,
+        },
+      ];
+      if (!isLoadBatAmps && hasChgPower) {
+        loadBatDatasets.push({
+          label: `${t("chartChgDrawn")} (${t("unitW")})`,
+          data: chgPower,
+          borderColor: "#38bdf8",
+          borderDash: [4, 4],
+          tension: 0.25,
+          pointRadius: 0,
+          borderWidth: 1.4,
+          spanGaps: false,
+        });
+      }
       loadBatChartInstance = new Chart(loadBatCanvas, {
         type: "line",
         plugins: [gapShadingPlugin],
         data: {
           labels,
-          datasets: [
-            {
-              label: isLoadBatAmps
-                ? `${t("chartLoadCurrOnly")} (${t("unitA")})`
-                : `${t("chartLoadOnly")} (${t("unitW")})`,
-              data: loadData,
-              borderColor: "#7c5cff",
-              backgroundColor: "rgba(124, 92, 255, 0.16)",
-              fill: true,
-              tension: 0.25,
-              pointRadius: 0,
-              borderWidth: 2,
-              spanGaps: false,
-            },
-            {
-              label: isLoadBatAmps
-                ? `${t("chartBatCurrOnly")} (${t("unitA")})`
-                : `${t("chartBatPowerOnly")} (${t("unitW")})`,
-              data: batData,
-              borderColor: "#22c55e",
-              segment: {
-                borderColor: (ctx) => {
-                  const rawVal = isLoadBatAmps
-                    ? batCurr[ctx.p0DataIndex]
-                    : batPower[ctx.p0DataIndex];
-                  return rawVal === null || rawVal < 0 ? "#f59e0b" : "#22c55e";
-                },
-              },
-              tension: 0.25,
-              pointRadius: 0,
-              borderWidth: 1.8,
-              spanGaps: false,
-            },
-          ],
+          datasets: loadBatDatasets,
         },
         options: {
           ...baseOptions,
@@ -822,6 +841,8 @@
       const loadBatTimeEl = document.getElementById("loadBatScrubTime");
       const loadBatLoadEl = document.getElementById("loadBatScrubLoad");
       const loadBatBatEl = document.getElementById("loadBatScrubBat");
+      const loadBatChgWrapEl = document.getElementById("loadBatScrubChgWrap");
+      const loadBatChgEl = document.getElementById("loadBatScrubChg");
       const loadBatModeEl = document.getElementById("loadBatScrubMode");
 
       function updateLoadBatReadout(rec) {
@@ -836,6 +857,7 @@
             loadBatBatEl.textContent = "🔋 —";
             loadBatBatEl.className = "val-muted";
           }
+          if (loadBatChgWrapEl) loadBatChgWrapEl.style.display = "none";
           if (loadBatModeEl) loadBatModeEl.textContent = "—";
           if (loadBatReadout) loadBatReadout.classList.add("is-active");
           return;
@@ -859,6 +881,7 @@
         const bp = Math.round(batV * Math.abs(rawBatA));
         const aAbs = Math.abs(rawBatA).toFixed(1);
 
+        const chgInW = Math.round(Number(rec.chgPower || 0));
         if (loadBatBatEl) {
           if (rawBatA > 0) {
             loadBatBatEl.textContent = `🔋 +${bp} ${t("unitW")} · ${aAbs} ${t("unitA")} (${t("charge")})`;
@@ -869,6 +892,15 @@
           } else {
             loadBatBatEl.textContent = `🔋 0 ${t("unitW")} · 0.0 ${t("unitA")} (${t("buffer")})`;
             loadBatBatEl.className = "val-blue";
+          }
+        }
+        if (loadBatChgWrapEl && loadBatChgEl) {
+          if (!isLoadBatAmps && chgInW > 0) {
+            loadBatChgWrapEl.style.display = "";
+            loadBatChgEl.textContent = `🔌 ${t("chargerDrawShort", { w: chgInW })}`;
+            loadBatChgEl.className = "val-blue";
+          } else {
+            loadBatChgWrapEl.style.display = "none";
           }
         }
 
@@ -1191,35 +1223,52 @@
     const chargedData = dailySeries.map((d) =>
       unit === "ah" ? Number((d.chgAh || 0).toFixed(1)) : Math.round(d.chgWh || 0)
     );
+    const chgDrawnData = dailySeries.map((d) =>
+      unit === "ah" ? 0 : Math.round(d.chgDrawnWh || 0)
+    );
     const dischargedData = dailySeries.map((d) =>
       unit === "ah" ? Number((d.disAh || 0).toFixed(1)) : Math.round(d.disWh || 0)
     );
+    const hasDailyChgDrawn = unit !== "ah" && chgDrawnData.some((v) => v > 0);
 
     const unitLabel = unit === "ah" ? t("unitAh") : t("unitWh");
+
+    const dailyDatasets = [
+      {
+        type: "bar",
+        label: `${t("charge")} (${unitLabel})`,
+        data: chargedData,
+        backgroundColor: "rgba(34, 197, 94, 0.78)",
+        borderColor: "#22c55e",
+        borderWidth: 1,
+        borderRadius: 4,
+      },
+      {
+        type: "bar",
+        label: `${t("discharge")} (${unitLabel})`,
+        data: dischargedData,
+        backgroundColor: "rgba(245, 158, 11, 0.78)",
+        borderColor: "#f59e0b",
+        borderWidth: 1,
+        borderRadius: 4,
+      },
+    ];
+    if (hasDailyChgDrawn) {
+      dailyDatasets.splice(1, 0, {
+        type: "bar",
+        label: `${t("hourlyChgDrawn")} (${unitLabel})`,
+        data: chgDrawnData,
+        backgroundColor: "rgba(56, 189, 248, 0.55)",
+        borderColor: "#38bdf8",
+        borderWidth: 1,
+        borderRadius: 4,
+      });
+    }
 
     statsDailyChartInstance = new Chart(canvas, {
       data: {
         labels,
-        datasets: [
-          {
-            type: "bar",
-            label: `${t("charge")} (${unitLabel})`,
-            data: chargedData,
-            backgroundColor: "rgba(34, 197, 94, 0.78)",
-            borderColor: "#22c55e",
-            borderWidth: 1,
-            borderRadius: 4,
-          },
-          {
-            type: "bar",
-            label: `${t("discharge")} (${unitLabel})`,
-            data: dischargedData,
-            backgroundColor: "rgba(245, 158, 11, 0.78)",
-            borderColor: "#f59e0b",
-            borderWidth: 1,
-            borderRadius: 4,
-          },
-        ],
+        datasets: dailyDatasets,
       },
       options: {
         responsive: true,
@@ -1259,6 +1308,8 @@
     const dailyReadout = document.getElementById("statsDailyScrubReadout");
     const dailyDateEl = document.getElementById("statsDailyDate");
     const dailyChgEl = document.getElementById("statsDailyCharge");
+    const dailyChgDrawnWrapEl = document.getElementById("statsDailyChgDrawnWrap");
+    const dailyChgDrawnEl = document.getElementById("statsDailyChgDrawn");
     const dailyDisEl = document.getElementById("statsDailyDischarge");
 
     function updateDailyReadout(idx) {
@@ -1271,6 +1322,16 @@
       if (dailyChgEl) {
         dailyChgEl.textContent = `⚡ +${cVal.toLocaleString()} ${unitLabel} (${t("charge")})`;
         dailyChgEl.className = cVal > 0 ? "val-green" : "val-muted";
+      }
+      if (dailyChgDrawnWrapEl && dailyChgDrawnEl) {
+        if (hasDailyChgDrawn) {
+          const cInVal = chgDrawnData[idx];
+          dailyChgDrawnWrapEl.style.display = "";
+          dailyChgDrawnEl.textContent = `🔌 ${cInVal.toLocaleString()} ${unitLabel} (${t("hourlyChgDrawnShort")})`;
+          dailyChgDrawnEl.className = cInVal > 0 ? "val-blue" : "val-muted";
+        } else {
+          dailyChgDrawnWrapEl.style.display = "none";
+        }
       }
       if (dailyDisEl) {
         dailyDisEl.textContent = `🔋 ${dVal.toLocaleString()} ${unitLabel} (${t("discharge")})`;
@@ -1319,6 +1380,7 @@
     const hours = Array.from({ length: 24 }, (_, i) => i);
     const labels = hours.map((h) => String(h).padStart(2, "0") + ":00");
     let charged = new Array(24).fill(0);
+    let chgDrawn = new Array(24).fill(0);
     let discharged = new Array(24).fill(0);
     let load = new Array(24).fill(0);
     let pv = new Array(24).fill(0);
@@ -1327,22 +1389,37 @@
     if (isAggregated) {
       dayCount = Math.max(1, Number(dataOrRecords.dayCount || 1));
       charged = unit === "ah" ? [...dataOrRecords.chargedAh] : [...dataOrRecords.chargedWh];
+      chgDrawn = unit === "ah"
+        ? new Array(24).fill(0)
+        : [...(dataOrRecords.chgDrawnWh || new Array(24).fill(0))];
       discharged = unit === "ah" ? [...dataOrRecords.dischargedAh] : [...dataOrRecords.dischargedWh];
       load = [...dataOrRecords.loadWh];
       pv = [...dataOrRecords.pvWh];
     } else {
-      const dt = 5 / 60; // 5 min interval in hours
-      for (const r of dataOrRecords) {
+      for (let i = 0; i < dataOrRecords.length; i++) {
+        const r = dataOrRecords[i];
         const h = Number(r.timestamp.slice(11, 13));
         if (h < 0 || h > 23) continue;
+
+        let dt = 5 / 60;
+        if (i > 0) {
+          const tPrev = new Date(dataOrRecords[i - 1].timestamp.replace(" ", "T")).getTime();
+          const tCur = new Date(r.timestamp.replace(" ", "T")).getTime();
+          const diffH = (tCur - tPrev) / (1000 * 3600);
+          if (!isNaN(diffH) && diffH > 0 && diffH <= 0.25) {
+            dt = diffH;
+          }
+        }
 
         const v = Number(r.batVolt || 0);
         const a = Number(r.batCurr || 0);
         const l = Number(r.loadActive || 0);
         const pPv = Math.max(0, Number(r.pvPower || 0));
+        const pChgIn = Math.max(0, Number(r.chgPower || 0));
 
         load[h] += l * dt;
         pv[h] += pPv * dt;
+        chgDrawn[h] += pChgIn * dt;
 
         if (unit === "ah") {
           if (a > 0) {
@@ -1379,8 +1456,10 @@
     const divisor = dayCount;
     const factor = unit === "ah" ? 10 : 1;
     const chargedData = charged.map((val) => Math.round((val / divisor) * factor) / factor);
+    const chgDrawnData = chgDrawn.map((val) => (unit === "ah" ? 0 : Math.round(val / divisor)));
     const dischargedData = discharged.map((val) => Math.round((val / divisor) * factor) / factor);
     const loadData = load.map((val) => (unit === "ah" ? 0 : Math.round(val / divisor)));
+    const hasHourlyChgDrawn = unit !== "ah" && chgDrawnData.some((v) => v > 0);
 
     const datasets = [
       {
@@ -1402,6 +1481,18 @@
         borderRadius: 4,
       },
     ];
+
+    if (hasHourlyChgDrawn) {
+      datasets.splice(1, 0, {
+        type: "bar",
+        label: `${t("hourlyChgDrawn")} (${t("unitWh")})`,
+        data: chgDrawnData,
+        backgroundColor: "rgba(56, 189, 248, 0.55)",
+        borderColor: "#38bdf8",
+        borderWidth: 1,
+        borderRadius: 4,
+      });
+    }
 
     if (unit !== "ah") {
       datasets.push({
@@ -1460,6 +1551,8 @@
     const hourlyReadout = document.getElementById("statsHourlyScrubReadout");
     const hourlyTimeEl = document.getElementById("statsHourlyTime");
     const hourlyChgEl = document.getElementById("statsHourlyCharge");
+    const hourlyChgDrawnWrapEl = document.getElementById("statsHourlyChgDrawnWrap");
+    const hourlyChgDrawnEl = document.getElementById("statsHourlyChgDrawn");
     const hourlyDisEl = document.getElementById("statsHourlyDischarge");
     const hourlyLoadEl = document.getElementById("statsHourlyLoad");
     const hourlyPvEl = document.getElementById("statsHourlyPv");
@@ -1474,6 +1567,16 @@
         const cVal = chargedData[hourIdx];
         hourlyChgEl.textContent = `⚡ +${cVal} ${unit === "ah" ? t("unitAh") : t("unitWh")} (${t("charge")})`;
         hourlyChgEl.className = cVal > 0 ? "val-green" : "val-muted";
+      }
+      if (hourlyChgDrawnWrapEl && hourlyChgDrawnEl) {
+        if (hasHourlyChgDrawn) {
+          const cInVal = chgDrawnData[hourIdx];
+          hourlyChgDrawnWrapEl.style.display = "";
+          hourlyChgDrawnEl.textContent = `🔌 ${cInVal} ${t("unitWh")} (${t("hourlyChgDrawnShort")})`;
+          hourlyChgDrawnEl.className = cInVal > 0 ? "val-blue" : "val-muted";
+        } else {
+          hourlyChgDrawnWrapEl.style.display = "none";
+        }
       }
       if (hourlyDisEl) {
         const dVal = dischargedData[hourIdx];

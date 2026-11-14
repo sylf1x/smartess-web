@@ -426,10 +426,15 @@ function renderKPI(latest, dev) {
   }
 
   if (batDetailsEl) {
-    batDetailsEl.textContent = t("batteryDetails", {
+    const baseBatDetails = t("batteryDetails", {
       v: batV.toFixed(1),
       a: (batA > 0 ? "+" : "") + batA,
     });
+    const latestChgInW = Math.round(Number(latest.chgPower || 0));
+    batDetailsEl.textContent =
+      isCharging && latestChgInW > 0
+        ? `${baseBatDetails} · ${t("chargerDrawShort", { w: latestChgInW })}`
+        : baseBatDetails;
   }
 
   // 4. Load Card
@@ -512,9 +517,12 @@ function renderGridInfographic(records) {
     return `${hh}:${mm}`;
   };
 
-  let totalOnlineMinutes = 0;
-  let totalOfflineMinutes = 0;
-  let totalNoDataMinutes = 0;
+  const now = new Date();
+  const todayStr = now.toLocaleDateString("en-CA");
+  const recordDate = String(records[0].timestamp || "").slice(0, 10);
+  const isToday = Boolean(recordDate && recordDate === todayStr);
+  const nowMinute = now.getHours() * 60 + now.getMinutes();
+
   let outageIncidents = 0;
   let inOutage = false;
 
@@ -528,8 +536,9 @@ function renderGridInfographic(records) {
   for (let i = 0; i < records.length; i++) {
     const r = records[i];
     const volt = Number(r.gridVolt || 0);
-    const minute = getMinuteOfDay(r.timestamp);
-    const curTime = r.timestamp.slice(11, 16);
+    const rawMinute = getMinuteOfDay(r.timestamp);
+    const minute = prevMinute !== null ? Math.max(prevMinute, rawMinute) : rawMinute;
+    const curTime = formatMinHHMM(minute);
 
     if (prevMinute === null) {
       // Mark missing data before the first reading if day starts late
@@ -541,7 +550,6 @@ function renderGridInfographic(records) {
           startTime: "00:00",
           endTime: curTime,
         });
-        totalNoDataMinutes += minute;
       }
     } else if (minute - prevMinute > GAP_THRESHOLD_MIN) {
       // Large gap detected: close prior segment cleanly instead of stretching across missing hours
@@ -559,7 +567,6 @@ function renderGridInfographic(records) {
         startTime: formatMinHHMM(gapStartMin),
         endTime: curTime,
       });
-      totalNoDataMinutes += minute - gapStartMin;
       inOutage = false;
     }
 
@@ -573,18 +580,17 @@ function renderGridInfographic(records) {
     if (volt >= 50) {
       minVolt = Math.min(minVolt, volt);
       maxVolt = Math.max(maxVolt, volt);
-      totalOnlineMinutes += 5;
       if (inOutage) {
         inOutage = false;
       }
     } else {
-      totalOfflineMinutes += 5;
       if (!inOutage) {
         inOutage = true;
         outageIncidents++;
       }
     }
 
+    const tailEnd = Math.min(1440, minute + 5);
     if (!currentSegment || currentSegment.state !== state) {
       if (currentSegment) {
         currentSegment.endMinute = minute;
@@ -594,25 +600,32 @@ function renderGridInfographic(records) {
       currentSegment = {
         state,
         startMinute: minute,
-        endMinute: Math.min(1440, minute + 5),
+        endMinute: tailEnd,
         startTime: curTime,
-        endTime: formatMinHHMM(Math.min(1440, minute + 5)),
+        endTime: formatMinHHMM(tailEnd),
       };
     } else {
-      currentSegment.endMinute = Math.min(1440, minute + 5);
-      currentSegment.endTime = formatMinHHMM(Math.min(1440, minute + 5));
+      currentSegment.endMinute = tailEnd;
+      currentSegment.endTime = formatMinHHMM(tailEnd);
     }
 
     prevMinute = minute;
   }
 
   if (currentSegment) {
+    if (isToday && prevMinute !== null) {
+      // Avoid projecting the trailing +5m sample window into the future on Today
+      const cappedEnd = Math.max(
+        prevMinute,
+        Math.min(1440, nowMinute, prevMinute + 5)
+      );
+      currentSegment.endMinute = cappedEnd;
+      currentSegment.endTime = formatMinHHMM(cappedEnd);
+    }
     segments.push(currentSegment);
   }
 
   // Mark missing trailing data on completed past dates (not Today, which stops at current time)
-  const recordDate = String(records[0].timestamp || "").slice(0, 10);
-  const todayStr = new Date().toLocaleDateString("en-CA");
   if (prevMinute !== null && recordDate && recordDate < todayStr) {
     const lastEnd = Math.min(1440, prevMinute + 5);
     if (1440 - lastEnd > GAP_THRESHOLD_MIN) {
@@ -623,7 +636,21 @@ function renderGridInfographic(records) {
         startTime: formatMinHHMM(lastEnd),
         endTime: "24:00",
       });
-      totalNoDataMinutes += 1440 - lastEnd;
+    }
+  }
+
+  // Compute totals from actual segment spans rather than counting +5m per record
+  let totalOnlineMinutes = 0;
+  let totalOfflineMinutes = 0;
+  let totalNoDataMinutes = 0;
+  for (const seg of segments) {
+    const dur = Math.max(0, seg.endMinute - seg.startMinute);
+    if (seg.state === "offline") {
+      totalOfflineMinutes += dur;
+    } else if (seg.state === "nodata") {
+      totalNoDataMinutes += dur;
+    } else {
+      totalOnlineMinutes += dur;
     }
   }
 
@@ -679,6 +706,15 @@ function renderGridInfographic(records) {
       gridTimelineReadout.innerHTML = `<span class="timeline-readout-hint">${t("timelineScrubHint")}</span>`;
     }
 
+    const getStatusDesc = (segState) =>
+      segState === "online"
+        ? t("statusOnline")
+        : segState === "warning"
+          ? t("statusWarning")
+          : segState === "nodata"
+            ? t("statusNoData")
+            : t("statusOffline");
+
     const selectSegment = (seg, segEl) => {
       gridTimelineRibbon
         .querySelectorAll(".timeline-segment.is-selected")
@@ -686,7 +722,7 @@ function renderGridInfographic(records) {
       if (segEl) segEl.classList.add("is-selected");
       if (!gridTimelineReadout || !seg) return;
 
-      const segDuration = Math.max(5, seg.endMinute - seg.startMinute);
+      const segDuration = Math.max(0, seg.endMinute - seg.startMinute);
       const statusDot =
         seg.state === "online"
           ? "🟢"
@@ -695,14 +731,7 @@ function renderGridInfographic(records) {
             : seg.state === "nodata"
               ? "⬜"
               : "🔴";
-      const statusDesc =
-        seg.state === "online"
-          ? t("statusOnline")
-          : seg.state === "warning"
-            ? t("statusWarning")
-            : seg.state === "nodata"
-              ? t("statusNoData")
-              : t("statusOffline");
+      const statusDesc = getStatusDesc(seg.state);
 
       gridTimelineReadout.classList.add("is-active");
       gridTimelineReadout.innerHTML = `
@@ -713,23 +742,17 @@ function renderGridInfographic(records) {
     };
 
     segments.forEach((seg) => {
-      const segDuration = Math.max(5, seg.endMinute - seg.startMinute);
+      const segDuration = Math.max(0, seg.endMinute - seg.startMinute);
+      const visualDuration = Math.max(5, segDuration);
       const leftPct = (seg.startMinute / totalDayMinutes) * 100;
-      const widthPct = (segDuration / totalDayMinutes) * 100;
+      const widthPct = (visualDuration / totalDayMinutes) * 100;
 
       const el = document.createElement("div");
       el.className = `timeline-segment seg-${seg.state}`;
       el.style.left = `${leftPct.toFixed(2)}%`;
       el.style.width = `${widthPct.toFixed(2)}%`;
 
-      const statusDesc =
-        seg.state === "online"
-          ? t("statusOnline")
-          : seg.state === "warning"
-            ? t("statusWarning")
-            : seg.state === "nodata"
-              ? t("statusNoData")
-              : t("statusOffline");
+      const statusDesc = getStatusDesc(seg.state);
 
       el.title = `${seg.startTime} – ${seg.endTime} (${formatDuration(segDuration)}): ${statusDesc}`;
       el.addEventListener("click", () => selectSegment(seg, el));
@@ -758,6 +781,7 @@ function renderRawTable(descRecords) {
       <td>${r.batSoc}%</td>
       <td>${r.batVolt}</td>
       <td>${r.batCurr}</td>
+      <td>${r.chgPower ?? 0}</td>
       <td>${r.gridVolt} / ${r.gridFreq}</td>
       <td>${r.outVolt}</td>
       <td>${r.tempInv}</td>
@@ -878,6 +902,7 @@ function packDayRecords(records) {
       mdlIdx,
       r.dayBatDisWh ?? 0,
       r.dayBatChgWh ?? 0,
+      r.chgPower ?? 0,
     ];
   });
   return { modes, models, rows };
@@ -912,6 +937,7 @@ function unpackDayRecords(dateStr, packed) {
     model: models[row[21]] || "",
     dayBatDisWh: row[22],
     dayBatChgWh: row[23],
+    chgPower: row[24] ?? 0,
   }));
 }
 
@@ -921,7 +947,14 @@ function getCachedRawDay(dev, dateStr) {
   const cache = loadSharedCache();
   const key = `${getDevCacheId(dev)}_${dateStr}`;
   const entry = cache[key];
-  if (entry && entry.p && Array.isArray(entry.p.rows) && entry.p.rows.length > 0) {
+  if (
+    entry &&
+    entry.p &&
+    Array.isArray(entry.p.rows) &&
+    entry.p.rows.length > 0 &&
+    Array.isArray(entry.p.rows[0]) &&
+    entry.p.rows[0].length >= 25
+  ) {
     entry.cachedAt = Date.now();
     saveSharedCache(cache);
     return unpackDayRecords(dateStr, entry.p);
@@ -935,7 +968,14 @@ function getCachedDayDigest(dev, dateStr) {
   const cache = loadSharedCache();
   const key = `${getDevCacheId(dev)}_${dateStr}`;
   const entry = cache[key];
-  return entry && entry.d && entry.d.summary && entry.d.hourly ? entry.d : null;
+  return entry &&
+    entry.d &&
+    entry.d.summary &&
+    entry.d.summary.chgDrawnWh !== undefined &&
+    entry.d.hourly &&
+    entry.d.hourly.chgDrawnWh !== undefined
+    ? entry.d
+    : null;
 }
 
 /**
@@ -949,7 +989,14 @@ function cachePastDay(dev, dateStr, records) {
   const cache = loadSharedCache();
   const key = `${getDevCacheId(dev)}_${dateStr}`;
   const existing = cache[key];
-  if (existing && existing.d?.summary?.count >= records.length && existing.p?.rows?.length >= records.length) {
+  if (
+    existing &&
+    existing.d?.summary?.chgDrawnWh !== undefined &&
+    existing.d?.hourly?.chgDrawnWh !== undefined &&
+    existing.d?.summary?.count >= records.length &&
+    existing.p?.rows?.length >= records.length &&
+    existing.p.rows[0]?.length >= 25
+  ) {
     existing.cachedAt = Date.now();
     saveSharedCache(cache);
     return;
@@ -983,26 +1030,42 @@ function buildDayDigest(dateStr, records) {
   const summary = calculateBatteryStats(records, "00:00", "23:59") || {
     count: 0, disWh: 0, disAh: 0, peakDisW: 0, peakDisA: 0, avgDisV: "0.0", disMinutes: 0,
     chgWh: 0, chgAh: 0, peakChgW: 0, peakChgA: 0, avgChgV: "0.0", chgMinutes: 0,
+    chgDrawnWh: 0, peakChgDrawnW: 0, gridDrawnWh: 0,
   };
 
   const chgWh = new Array(24).fill(0);
+  const chgDrawnWh = new Array(24).fill(0);
   const disWh = new Array(24).fill(0);
   const chgAh = new Array(24).fill(0);
   const disAh = new Array(24).fill(0);
   const loadWh = new Array(24).fill(0);
   const pvWh = new Array(24).fill(0);
 
-  const dt = 5 / 60;
-  for (const r of records || []) {
+  const list = records || [];
+  for (let i = 0; i < list.length; i++) {
+    const r = list[i];
     const h = Number(String(r.timestamp || "").slice(11, 13));
     if (h < 0 || h > 23) continue;
+
+    let dt = 5 / 60;
+    if (i > 0) {
+      const tPrev = new Date(list[i - 1].timestamp.replace(" ", "T")).getTime();
+      const tCur = new Date(r.timestamp.replace(" ", "T")).getTime();
+      const diffH = (tCur - tPrev) / (1000 * 3600);
+      if (!isNaN(diffH) && diffH > 0 && diffH <= 0.25) {
+        dt = diffH;
+      }
+    }
+
     const v = Number(r.batVolt || 0);
     const a = Number(r.batCurr || 0);
     const l = Number(r.loadActive || 0);
     const pPv = Math.max(0, Number(r.pvPower || 0));
+    const pChgIn = Math.max(0, Number(r.chgPower || 0));
 
     loadWh[h] += l * dt;
     pvWh[h] += pPv * dt;
+    chgDrawnWh[h] += pChgIn * dt;
 
     if (a > 0) {
       chgWh[h] += v * a * dt;
@@ -1028,9 +1091,13 @@ function buildDayDigest(dateStr, records) {
       peakChgW: summary.peakChgW,
       peakChgA: summary.peakChgA,
       chgMinutes: summary.chgMinutes,
+      chgDrawnWh: summary.chgDrawnWh || 0,
+      peakChgDrawnW: summary.peakChgDrawnW || 0,
+      gridDrawnWh: summary.gridDrawnWh || 0,
     },
     hourly: {
       chgWh: chgWh.map((x) => Math.round(x)),
+      chgDrawnWh: chgDrawnWh.map((x) => Math.round(x)),
       disWh: disWh.map((x) => Math.round(x)),
       chgAh: chgAh.map((x) => Math.round(x * 10) / 10),
       disAh: disAh.map((x) => Math.round(x * 10) / 10),
@@ -1099,10 +1166,12 @@ async function getAggregatedStatsRange(dev, dateFrom, dateTo, onProgress) {
 
   let count = 0, disWh = 0, disAh = 0, peakDisW = 0, peakDisA = 0, disMinutes = 0;
   let chgWh = 0, chgAh = 0, peakChgW = 0, peakChgA = 0, chgMinutes = 0;
+  let chgDrawnWh = 0, peakChgDrawnW = 0, gridDrawnWh = 0;
   const hourly = {
     isAggregated: true,
     dayCount: 0,
     chargedWh: new Array(24).fill(0),
+    chgDrawnWh: new Array(24).fill(0),
     dischargedWh: new Array(24).fill(0),
     chargedAh: new Array(24).fill(0),
     dischargedAh: new Array(24).fill(0),
@@ -1128,11 +1197,15 @@ async function getAggregatedStatsRange(dev, dateFrom, dateTo, onProgress) {
     if (s.peakChgW > peakChgW) peakChgW = s.peakChgW;
     if (s.peakChgA > peakChgA) peakChgA = s.peakChgA;
     chgMinutes += s.chgMinutes;
+    chgDrawnWh += s.chgDrawnWh || 0;
+    if ((s.peakChgDrawnW || 0) > peakChgDrawnW) peakChgDrawnW = s.peakChgDrawnW;
+    gridDrawnWh += s.gridDrawnWh || 0;
 
     if (s.count > 0) activeDays++;
 
     for (let hr = 0; hr < 24; hr++) {
       hourly.chargedWh[hr] += h.chgWh[hr] || 0;
+      hourly.chgDrawnWh[hr] += (h.chgDrawnWh && h.chgDrawnWh[hr]) || 0;
       hourly.dischargedWh[hr] += h.disWh[hr] || 0;
       hourly.chargedAh[hr] += h.chgAh[hr] || 0;
       hourly.dischargedAh[hr] += h.disAh[hr] || 0;
@@ -1146,6 +1219,7 @@ async function getAggregatedStatsRange(dev, dateFrom, dateTo, onProgress) {
       disAh: s.disAh,
       chgWh: s.chgWh,
       chgAh: s.chgAh,
+      chgDrawnWh: s.chgDrawnWh || 0,
     });
   }
 
@@ -1175,6 +1249,9 @@ async function getAggregatedStatsRange(dev, dateFrom, dateTo, onProgress) {
       avgChgA: chgHours > 0 ? (chgAh / chgHours).toFixed(1) : "0.0",
       avgChgV,
       chgMinutes: Math.round(chgMinutes),
+      chgDrawnWh: Math.round(chgDrawnWh),
+      peakChgDrawnW: Math.round(peakChgDrawnW),
+      gridDrawnWh: Math.round(gridDrawnWh),
     },
     dailySeries,
     hourly,
@@ -1211,7 +1288,7 @@ function normalizeDayRecords(rows) {
  * transient zero dropouts, tracking resets on the same calendar day,
  * and flagging oscillating/corrupted sequences (more than 3 resets in a day).
  */
-function calculateAccumulatorDelta(records, fieldName) {
+function calculateAccumulatorDelta(records, fieldName, scale = 1) {
   if (!records || records.length === 0) return { total: 0, resets: 0, valid: false };
   const firstVal = Number(records[0][fieldName] || 0);
   let total = 0;
@@ -1256,7 +1333,7 @@ function calculateAccumulatorDelta(records, fieldName) {
     prev = val;
   }
   return {
-    total: Math.round(total), resets, valid: resets <= 3,
+    total: Math.round(total * scale), resets, valid: resets <= 3,
   };
 }
 
@@ -1277,6 +1354,7 @@ function calculateBatteryStats(records, fromStr = "00:00", toStr = "23:59") {
       count: 0,
       disWh: 0, disAh: 0, peakDisW: 0, peakDisA: 0, avgDisW: 0, avgDisA: 0, disMinutes: 0, avgDisV: 0,
       chgWh: 0, chgAh: 0, peakChgW: 0, peakChgA: 0, avgChgW: 0, avgChgA: 0, chgMinutes: 0, avgChgV: 0,
+      chgDrawnWh: 0, peakChgDrawnW: 0, gridDrawnWh: 0,
       netWh: 0, netAh: 0, whEfficiency: 0, ahEfficiency: 0,
       socStart: 0, socEnd: 0, socDelta: 0,
     };
@@ -1284,6 +1362,19 @@ function calculateBatteryStats(records, fromStr = "00:00", toStr = "23:59") {
 
   let disWh = 0, disAh = 0, peakDisW = 0, peakDisA = 0, disMinutes = 0;
   let chgWh = 0, chgAh = 0, peakChgW = 0, peakChgA = 0, chgMinutes = 0;
+  let chgDrawnWh = 0, peakChgDrawnW = 0;
+  let trapGridEstWh = 0, trapGridMaxWh = 0, gridOnlineMinutes = 0;
+
+  const getGridSampleEstW = (rec) => {
+    const gv = Number(rec.gridVolt || 0);
+    if (gv < 50) return { estW: 0, vaW: 0, online: false };
+    const ga = Math.max(0, Number(rec.gridCurr || 0));
+    const chgInW = Math.max(0, Number(rec.chgPower || 0));
+    const ba = Number(rec.batCurr || 0);
+    const loadW = Math.max(0, Number(rec.loadActive || 0));
+    const estW = chgInW + (ba >= -0.2 ? loadW : 0);
+    return { estW, vaW: gv * ga, online: true };
+  };
 
   // High-precision Trapezoidal Numerical Integration:
   // - Uses actual dynamic delta-time (dt) between consecutive timestamps
@@ -1295,6 +1386,9 @@ function calculateBatteryStats(records, fromStr = "00:00", toStr = "23:59") {
     const a = Number(cur.batCurr || 0);
     const curW = v * Math.abs(a);
     const curA = Math.abs(a);
+    const curChgInW = Math.max(0, Number(cur.chgPower || 0));
+
+    if (curChgInW > peakChgDrawnW) peakChgDrawnW = curChgInW;
 
     if (a < 0) {
       if (curW > peakDisW) peakDisW = curW;
@@ -1307,6 +1401,13 @@ function calculateBatteryStats(records, fromStr = "00:00", toStr = "23:59") {
     if (i === 0) {
       if (filtered.length === 1) {
         const dt = 5 / 60;
+        chgDrawnWh += curChgInW * dt;
+        const gCur = getGridSampleEstW(cur);
+        if (gCur.online) {
+          gridOnlineMinutes += 5;
+          trapGridEstWh += gCur.estW * dt;
+          trapGridMaxWh += gCur.vaW * dt;
+        }
         if (a < 0) {
           disWh += curW * dt;
           disAh += curA * dt;
@@ -1323,12 +1424,23 @@ function calculateBatteryStats(records, fromStr = "00:00", toStr = "23:59") {
     const prev = filtered[i - 1];
     const prevV = Number(prev.batVolt || 0);
     const prevA = Number(prev.batCurr || 0);
+    const prevChgInW = Math.max(0, Number(prev.chgPower || 0));
 
     const tPrev = new Date(prev.timestamp.replace(" ", "T")).getTime();
     const tCur = new Date(cur.timestamp.replace(" ", "T")).getTime();
     let dtHours = (tCur - tPrev) / (1000 * 3600);
     if (isNaN(dtHours) || dtHours <= 0 || dtHours > 0.25) {
       dtHours = 5 / 60;
+    }
+
+    chgDrawnWh += ((prevChgInW + curChgInW) / 2) * dtHours;
+
+    const gPrev = getGridSampleEstW(prev);
+    const gCur = getGridSampleEstW(cur);
+    if (gPrev.online || gCur.online) {
+      gridOnlineMinutes += dtHours * 60;
+      trapGridEstWh += ((gPrev.estW + gCur.estW) / 2) * dtHours;
+      trapGridMaxWh += ((gPrev.vaW + gCur.vaW) / 2) * dtHours;
     }
 
     const prevP = prevV * prevA;
@@ -1379,6 +1491,7 @@ function calculateBatteryStats(records, fromStr = "00:00", toStr = "23:59") {
   // 1. Monotonic Hardware Accumulator Delta with Dropout Immunity & Reset Detection
   const hwDis = calculateAccumulatorDelta(filtered, "dayBatDisWh");
   const hwChg = calculateAccumulatorDelta(filtered, "dayBatChgWh");
+  const hwGrid = calculateAccumulatorDelta(filtered, "dayGridKwh", 1000);
 
   const trapDisWh = Math.round(disWh);
   const trapChgWh = Math.round(chgWh);
@@ -1404,6 +1517,14 @@ function calculateBatteryStats(records, fromStr = "00:00", toStr = "23:59") {
 
   const finalDisWh = isHwDisValid ? hwDis.total : trapDisWh;
   const finalChgWh = isHwChgValid ? hwChg.total : trapChgWh;
+
+  const isHwGridValid =
+    hwGrid.valid &&
+    hwGrid.total >= 0 &&
+    (hwGrid.total === 0 ||
+      (gridOnlineMinutes > 0 &&
+        hwGrid.total <= Math.max(trapGridMaxWh * 1.25, trapGridEstWh * 2.5, 1000)));
+  const finalGridDrawnWh = isHwGridValid ? hwGrid.total : Math.round(trapGridEstWh);
 
   const avgDisVNum = disAh > 0 ? disWh / disAh : 0;
   const avgDisV = avgDisVNum.toFixed(1);
@@ -1449,6 +1570,9 @@ function calculateBatteryStats(records, fromStr = "00:00", toStr = "23:59") {
     avgChgA,
     avgChgV,
     chgMinutes: Math.round(chgMinutes),
+    chgDrawnWh: Math.round(chgDrawnWh),
+    peakChgDrawnW: Math.round(peakChgDrawnW),
+    gridDrawnWh: finalGridDrawnWh,
     netWh,
     netAh,
     whEfficiency,
@@ -1606,11 +1730,13 @@ function populateStatsCards(stats) {
   if (peakChgWEl) peakChgWEl.textContent = `${stats.peakChgW.toLocaleString()} ${t("unitW")}`;
   const peakChgAEl = document.getElementById("statsPeakChgA");
   if (peakChgAEl) peakChgAEl.textContent = `${stats.peakChgA} ${t("unitA")}`;
-  const avgChgWEl = document.getElementById("statsAvgChgW");
-  if (avgChgWEl)
-    avgChgWEl.textContent = `${stats.avgChgW} ${t("unitW")} (${stats.avgChgA} ${t("unitA")})`;
-  const chgDurEl = document.getElementById("statsChgDuration");
-  if (chgDurEl) chgDurEl.textContent = formatDur(stats.chgMinutes);
+  const gridDrawnEl = document.getElementById("statsGridDrawnVal");
+  if (gridDrawnEl) {
+    const gridWh = Number(stats.gridDrawnWh || 0);
+    gridDrawnEl.textContent = gridWh > 0
+      ? `${(gridWh / 1000).toFixed(1)} ${t("unitKwh")}`
+      : `0.0 ${t("unitKwh")}`;
+  }
 
   // Interval Badge
   const intervalBadge = document.getElementById("statsIntervalBadge");

@@ -248,6 +248,7 @@
             <div class="scrub-time"><span class="scrub-icon">🕒</span> <span id="loadBatScrubTime">--:--</span></div>
             <div class="scrub-pill"><span class="scrub-dot dot-purple"></span> <span id="loadBatScrubLoad">— Вт</span></div>
             <div class="scrub-pill"><span class="scrub-dot dot-green"></span> <span id="loadBatScrubBat">— Вт</span></div>
+            <div class="scrub-pill" id="loadBatScrubChgWrap" style="display: none;"><span class="scrub-dot dot-blue"></span> <span id="loadBatScrubChg">—</span></div>
             <div class="scrub-pill scrub-mode-pill"><span class="scrub-dot dot-gray"></span> <span id="loadBatScrubMode">—</span></div>
             <div class="scrub-hint" data-i18n="scrubHint">Проведи пальцем по графіку</div>
           </div>
@@ -343,13 +344,9 @@
                 <span class="meta-label" data-i18n="statsPeakCurrent">Піковий струм</span>
                 <span class="meta-val" id="statsPeakChgA">— А</span>
               </div>
-              <div class="stats-meta-item">
-                <span class="meta-label" data-i18n="statsAvgPower">Середня потужність</span>
-                <span class="meta-val" id="statsAvgChgW">— Вт</span>
-              </div>
-              <div class="stats-meta-item">
-                <span class="meta-label" data-i18n="statsDuration">Тривалість заряду</span>
-                <span class="meta-val" id="statsChgDuration">—</span>
+              <div class="stats-meta-item stats-meta-item-highlight">
+                <span class="meta-label" data-i18n="statsGridDrawnTitle">⚡ Взято з мережі</span>
+                <span class="meta-val" id="statsGridDrawnVal">—</span>
               </div>
             </div>
           </div>
@@ -370,6 +367,7 @@
           <div class="chart-scrubber-readout" id="statsDailyScrubReadout">
             <div class="scrub-time"><span class="scrub-icon">📅</span> <span id="statsDailyDate">—</span></div>
             <div class="scrub-pill"><span class="scrub-dot dot-green"></span> <span id="statsDailyCharge">—</span></div>
+            <div class="scrub-pill" id="statsDailyChgDrawnWrap"><span class="scrub-dot dot-blue"></span> <span id="statsDailyChgDrawn">—</span></div>
             <div class="scrub-pill"><span class="scrub-dot dot-amber"></span> <span id="statsDailyDischarge">—</span></div>
             <div class="scrub-hint" data-i18n="scrubHint">Проведи пальцем по графіку</div>
           </div>
@@ -396,6 +394,7 @@
           <div class="chart-scrubber-readout" id="statsHourlyScrubReadout">
             <div class="scrub-time"><span class="scrub-icon">🕒</span> <span id="statsHourlyTime">--:00</span></div>
             <div class="scrub-pill"><span class="scrub-dot dot-green"></span> <span id="statsHourlyCharge">—</span></div>
+            <div class="scrub-pill" id="statsHourlyChgDrawnWrap"><span class="scrub-dot dot-blue"></span> <span id="statsHourlyChgDrawn">—</span></div>
             <div class="scrub-pill"><span class="scrub-dot dot-amber"></span> <span id="statsHourlyDischarge">—</span></div>
             <div class="scrub-pill"><span class="scrub-dot dot-purple"></span> <span id="statsHourlyLoad">—</span></div>
             <div class="scrub-pill"><span class="scrub-dot dot-amber"></span> <span id="statsHourlyPv">—</span></div>
@@ -543,6 +542,7 @@
                   <th data-i18n="batSocCol">АКБ (%)</th>
                   <th data-i18n="batVoltCol">АКБ (В)</th>
                   <th data-i18n="batCurrCol">Струм АКБ (А)</th>
+                  <th data-i18n="chgPowerCol">Зарядник (Вт)</th>
                   <th data-i18n="gridCol">Мережа (В / Гц)</th>
                   <th data-i18n="outCol">Вихід (В)</th>
                   <th data-i18n="tempCol">T інв. (°C)</th>

@@ -2161,6 +2161,32 @@ dialog::backdrop {
   color: var(--text);
 }
 
+.stats-meta-item-highlight {
+  grid-column: 1 / -1;
+  flex-direction: row;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  padding-top: 10px;
+  margin-top: 2px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.stats-meta-item-highlight .meta-label {
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: #93c5fd;
+  letter-spacing: 0.04em;
+}
+
+.stats-meta-item-highlight .meta-val {
+  font-size: 1.12rem;
+  font-weight: 800;
+  color: var(--blue);
+  font-variant-numeric: tabular-nums;
+}
+
 .stats-unit-toggle {
   display: inline-flex;
   align-items: center;

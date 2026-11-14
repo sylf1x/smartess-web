@@ -210,6 +210,7 @@ function parseRows(dat) {
       pvCurr: getVal(f, ["pvinputcurr", "pv input current"], 14) ?? 0,
       pvPower:
         getVal(f, ["pv charging power", "pv input power"], 15) ?? 0,
+      chgPower: Number(getVal(f, ["chargepower", "charge power"], 17) ?? 0),
       outVolt: getVal(f, ["outvolt", "ac output voltage"], 18) ?? 0,
       invCurr: getVal(f, ["invcurr", "inverter current"], 19) ?? 0,
       loadCurr: getVal(f, ["load current", "load curr", "ac output current"], 21) ?? 0,
